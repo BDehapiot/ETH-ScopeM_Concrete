@@ -6,6 +6,7 @@ from skimage import io
 from pathlib import Path
 import matplotlib.pyplot as plt
 from pystackreg import StackReg
+from scipy.signal import find_peaks
 from joblib import Parallel, delayed
 from skimage.transform import downscale_local_mean
 
@@ -42,9 +43,14 @@ def process_stack(stack_path):
     
     # Nested functions --------------------------------------------------------
     
-    def process_img(img_ref, img_path):       
-        return sr.register_transform(
-            img_ref, downscale_local_mean(io.imread(img_path), rsize_factor))
+    def open_img(img_path):
+        img = downscale_local_mean(io.imread(img_path), rsize_factor)
+        # img = np.clip(img, min_int, max_int)
+        # img = ((img - min_int) / (max_int - min_int) * 255).astype("uint8")
+        return img
+    
+    def register_img(reference, img):
+        return sr.register_transform(reference, img)
     
     # Execute -----------------------------------------------------------------
     
@@ -54,16 +60,12 @@ def process_stack(stack_path):
         if path.suffix == ".tif":
             img_paths.append(path)
             
-    # Initialize
-    sr = StackReg(StackReg.TRANSLATION)
-    img_ref = downscale_local_mean(io.imread(img_paths[0]), rsize_factor)
-            
-    # Process stack
+    # Open stack
     print(stack_path.stem)
-    print("  Process :", end='')
+    print("  Open     :", end='')
     t0 = time.time()
     stack = Parallel(n_jobs=-1)(
-            delayed(process_img)(img_ref, img_path) 
+            delayed(open_img)(img_path) 
             for img_path in img_paths
             )
     stack = np.stack(stack)
@@ -77,35 +79,31 @@ def process_stack(stack_path):
     z1 = np.where(
         (z_mean_diff > 0) & (z_mean > np.max(z_mean) * 0.9))[0][-1] + 1
     stack = stack[z0:z1, ...]
+    
+    # Register stack
+    print("  Register :", end='')
+    t0 = time.time()
+    sr = StackReg(StackReg.TRANSLATION)
+    stack = Parallel(n_jobs=-1)(
+            delayed(register_img)(stack[0,...], stack[i,...]) 
+            for i in range(stack.shape[0])
+            )
+    stack = np.stack(stack)
+    # stack[stack < 0] = 0
+    # stack[stack > 255] = 255
+    # stack = stack.astype("uint8")
+    t1 = time.time()
+    print(f" {(t1-t0):5.2f} s") 
 
     return stack
 
 #%%
 
-stacks = []
 for stack_path in stack_paths:
     if stack_name in stack_path.name:      
-        stacks.append(process_stack(stack_path))
-        # io.imsave(
-        #     Path(data_path, f"{stack_path.stem}_process.tif"),
-        #     stack.astype("float32"), check_contrast=False,
-        #     )
-        
-#%%
-
-'''
-
-- Way to slow!
-
-'''
-
-from skimage.exposure import match_histograms
-
-matched_stacks = []
-stack_ref = stacks[0]
-for stack in stacks[1:]:
-    matched_stack = match_histograms(stack, stack_ref)
-    matched_stacks.append(matched_stack)
-
-
+        stack = process_stack(stack_path)
+        io.imsave(
+            Path(data_path, f"{stack_path.stem}_process.tif"),
+            stack.astype("float32"), check_contrast=False,
+            )
     

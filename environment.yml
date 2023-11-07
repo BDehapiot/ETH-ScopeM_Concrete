@@ -14,6 +14,7 @@ dependencies:
   - opencv
   - joblib
   - matplotlib-base
+  - pystackreg
   - spyder
   - pip
   - pip:
