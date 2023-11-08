@@ -12,7 +12,7 @@ from skimage.transform import downscale_local_mean
 
 #%% Parameters ----------------------------------------------------------------
 
-stack_idx = 13
+stack_idx = 2
 rsize_factor = 4
 max_diff = 0.33
 min_int = 5173
@@ -43,8 +43,8 @@ def open_stack(stack_idx, stack_paths):
     
     def open_img(img_path):
         img = downscale_local_mean(io.imread(img_path), rsize_factor)
-        img = np.clip(img, min_int, max_int)
-        img = ((img - min_int) / (max_int - min_int) * 255).astype("uint8")
+        # img = np.clip(img, min_int, max_int)
+        # img = ((img - min_int) / (max_int - min_int) * 255).astype("uint8")
         return img
     
     img_paths = []
