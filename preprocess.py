@@ -151,29 +151,80 @@ for stack in stacks:
     
 #%%
 
-from scipy.signal import correlate
+from dtw import dtw
 
-signal1 = data[0][1]
-signal2 = data[1][1]
+# Assuming data[0][1] and data[1][1] are your signals
+signal1 = data[1][1]
+signal2 = data[3][1]
 
-cross_corr = correlate(signal2, signal1, mode='full')
-shift = np.argmax(cross_corr) - (len(signal1) - 1)
+# Create the DTW object and compute the alignment
+alignment = dtw(
+    signal1, signal2, 
+    step_pattern='asymmetric',
+    open_end=True,
+    open_begin=True,
+    keep_internals=True,
+    )
 
-print(shift)
+alignment.plot(type="threeway")
 
-aligned_signal2 = np.roll(signal2, -shift)
+# Access the aligned sequences
+aligned_signal1 = signal1[alignment.index1]
+aligned_signal2 = signal2[alignment.index2]
 
 # Plotting
-plt.figure()
+plt.figure(figsize=(6, 6))
+
+# Original signals
+plt.subplot(2, 1, 1)
 plt.plot(signal1, label='Signal 1')
-plt.plot(aligned_signal2, label='Aligned Signal 2')
-plt.legend()
-plt.title("Signal Alignment using Cross-Correlation")
+plt.plot(signal2, label='Signal 2')
+plt.title("Original Signals")
 plt.xlabel("Index")
 plt.ylabel("Value")
+plt.legend()
+
+# Aligned signals
+plt.subplot(2, 1, 2)
+plt.plot(aligned_signal1, label='Aligned Signal 1')
+plt.plot(aligned_signal2, label='Aligned Signal 2')
+plt.title("Aligned Signals using DTW")
+plt.xlabel("Index")
+plt.ylabel("Value")
+plt.legend()
+
+plt.tight_layout()
 plt.show()
 
+# Print DTW distance
+print("DTW distance:", alignment.distance)
+
 #%%
+
+from dtaidistance import dtw
+
+def align_signals(signal1, signal2):
+    # Calculate the DTW alignment
+    distance, paths = dtw.warping_paths(signal1, signal2)
+    best_path = dtw.best_path(paths)
+
+    # Align the signals based on DTW path
+    aligned_signal1 = [signal1[i] for i, j in best_path]
+    aligned_signal2 = [signal2[j] for i, j in best_path]
+
+    return np.array(aligned_signal1), np.array(aligned_signal2), best_path
+
+# Example usage with dummy data
+signal1 = data[1][1]
+signal2 = data[3][1]
+
+aligned_signal1, aligned_signal2, path = align_signals(signal1, signal2)
+
+# Plotting the results
+plt.plot(aligned_signal1, label='Aligned Signal 1')
+plt.plot(aligned_signal2, label='Aligned Signal 2')
+plt.legend()
+plt.show()
 
 #%%
 
