@@ -115,10 +115,70 @@ for stack_path in stack_paths:
         
 #%%
 
-avg_proj = []
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks, peak_prominences
+
+data = []
 for stack in stacks:
-    avg_proj.append(np.mean(stack, axis=0).astype("uint16"))
+    
+    # Pixel intensity distribution
+    avgProj = np.mean(stack, axis=0)
+    hist, bins = np.histogram(
+        avgProj.flatten(), bins=1024, range=(0, 65535))    
+    hist = gaussian_filter1d(hist, sigma=2)
+    pks, _ = find_peaks(hist, distance=20)
+    proms = peak_prominences(hist, pks)[0]
+    sorted_pks = pks[np.argsort(proms)[::-1]]
+    select_pks = sorted_pks[:3]
+    
+    # Get masks
+    thresh1 = bins[select_pks[1]] - (
+        (bins[select_pks[1]] - bins[select_pks[0]]) / 2)
+    thresh2 = bins[select_pks[2]] - (
+        (bins[select_pks[2]] - bins[select_pks[1]]) / 2)
+    mask1 = (avgProj >= thresh1) & (avgProj <= thresh2)
+    mask2 = avgProj >= thresh2
+    
+    # Extract zProfiles
+    zProf1, zProf2 = [], []
+    for img in stack:
+        zProf1.append(np.mean(img[mask1]))
+        zProf2.append(np.mean(img[mask2]))
+    zProf1 = np.stack(zProf1) / np.mean(zProf1)
+    zProf2 = np.stack(zProf2) / np.mean(zProf2)
+    
+    data.append((avgProj, zProf1, zProf2, thresh1, thresh2, mask1, mask2))
     
 #%%
 
-plt.hist(avg, kwargs)
+from scipy.signal import correlate
+
+signal1 = data[0][1]
+signal2 = data[1][1]
+
+cross_corr = correlate(signal2, signal1, mode='full')
+shift = np.argmax(cross_corr) - (len(signal1) - 1)
+
+print(shift)
+
+aligned_signal2 = np.roll(signal2, -shift)
+
+# Plotting
+plt.figure()
+plt.plot(signal1, label='Signal 1')
+plt.plot(aligned_signal2, label='Aligned Signal 2')
+plt.legend()
+plt.title("Signal Alignment using Cross-Correlation")
+plt.xlabel("Index")
+plt.ylabel("Value")
+plt.show()
+
+#%%
+
+#%%
+
+# io.imsave(
+#     Path(data_path, f"{stack_path.stem}_avgProjs_reg.tif"),
+#     avgProjs_reg, check_contrast=False,
+#     )
+
