@@ -86,18 +86,18 @@ def process_stack(stack_path):
     z0 = np.argmax(np.abs(z_mean_diff)) + 1
     z1 = np.where(
         (z_mean_diff > 0) & (z_mean > np.max(z_mean) * 0.9))[0][-1] + 1
-    stack = stack[z0:z1, ...]
+    stack = stack[z0:z1, ...]    
     
-    # Register stack
-    print("  Register :", end='')
-    t0 = time.time()
-    stack = Parallel(n_jobs=-1)(
-            delayed(register_img)(stack[0,...], stack[i,...]) 
-            for i in range(len(stack))
-            )
-    stack = np.stack(stack)
-    t1 = time.time()
-    print(f" {(t1-t0):5.2f} s") 
+    # # Register stack
+    # print("  Register :", end='')
+    # t0 = time.time()
+    # stack = Parallel(n_jobs=-1)(
+    #         delayed(register_img)(stack[0,...], stack[i,...]) 
+    #         for i in range(len(stack))
+    #         )
+    # stack = np.stack(stack)
+    # t1 = time.time()
+    # print(f" {(t1-t0):5.2f} s") 
 
     return stack
 
@@ -115,121 +115,76 @@ for stack_path in stack_paths:
         
 #%%
 
-from scipy.ndimage import gaussian_filter1d
-from scipy.signal import find_peaks, peak_prominences
+tp = 2
 
-data = []
-for stack in stacks:
-    
-    # Pixel intensity distribution
-    avgProj = np.mean(stack, axis=0)
-    hist, bins = np.histogram(
-        avgProj.flatten(), bins=1024, range=(0, 65535))    
-    hist = gaussian_filter1d(hist, sigma=2)
-    pks, _ = find_peaks(hist, distance=20)
-    proms = peak_prominences(hist, pks)[0]
-    sorted_pks = pks[np.argsort(proms)[::-1]]
-    select_pks = sorted_pks[:3]
-    
-    # Get masks
-    thresh1 = bins[select_pks[1]] - (
-        (bins[select_pks[1]] - bins[select_pks[0]]) / 2)
-    thresh2 = bins[select_pks[2]] - (
-        (bins[select_pks[2]] - bins[select_pks[1]]) / 2)
-    mask1 = (avgProj >= thresh1) & (avgProj <= thresh2)
-    mask2 = avgProj >= thresh2
-    
-    # Extract zProfiles
-    zProf1, zProf2 = [], []
-    for img in stack:
-        zProf1.append(np.mean(img[mask1]))
-        zProf2.append(np.mean(img[mask2]))
-    zProf1 = np.stack(zProf1) / np.mean(zProf1)
-    zProf2 = np.stack(zProf2) / np.mean(zProf2)
-    
-    data.append((avgProj, zProf1, zProf2, thresh1, thresh2, mask1, mask2))
-    
-#%%
+# Top/bottom tilt angle
+top = stacks[tp][ 0,...] > 30000
+bot = stacks[tp][-1,...] > 30000
 
-from dtw import dtw
+idxTop = np.argwhere(top == 1)
+idxBot = np.argwhere(bot == 1)
+y0, x0 = np.mean(idxTop, axis=0)
+y1, x1 = np.mean(idxBot, axis=0)
 
-# Assuming data[0][1] and data[1][1] are your signals
-signal1 = data[1][1]
-signal2 = data[3][1]
+dist = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
+angr = np.arctan2(y1 - y0, x1 - x0)
+angd = np.degrees(angr)
 
-# Create the DTW object and compute the alignment
-alignment = dtw(
-    signal1, signal2, 
-    step_pattern='asymmetric',
-    open_end=True,
-    open_begin=True,
-    keep_internals=True,
+hypo = np.sqrt(dist**2 + stacks[tp].shape[0]**2)
+
+test = stacks[tp]
+
+io.imsave(
+    Path(data_path, f"{stack_path.stem}_top_{tp}.tif"),
+    top.astype("uint8")*255, check_contrast=False,
     )
-
-alignment.plot(type="threeway")
-
-# Access the aligned sequences
-aligned_signal1 = signal1[alignment.index1]
-aligned_signal2 = signal2[alignment.index2]
-
-# Plotting
-plt.figure(figsize=(6, 6))
-
-# Original signals
-plt.subplot(2, 1, 1)
-plt.plot(signal1, label='Signal 1')
-plt.plot(signal2, label='Signal 2')
-plt.title("Original Signals")
-plt.xlabel("Index")
-plt.ylabel("Value")
-plt.legend()
-
-# Aligned signals
-plt.subplot(2, 1, 2)
-plt.plot(aligned_signal1, label='Aligned Signal 1')
-plt.plot(aligned_signal2, label='Aligned Signal 2')
-plt.title("Aligned Signals using DTW")
-plt.xlabel("Index")
-plt.ylabel("Value")
-plt.legend()
-
-plt.tight_layout()
-plt.show()
-
-# Print DTW distance
-print("DTW distance:", alignment.distance)
-
+io.imsave(
+    Path(data_path, f"{stack_path.stem}_bot_{tp}.tif"),
+    bot.astype("uint8")*255, check_contrast=False,
+    )
+        
 #%%
 
-from dtaidistance import dtw
+# from scipy.ndimage import gaussian_filter1d
+# from scipy.signal import find_peaks, peak_prominences
 
-def align_signals(signal1, signal2):
-    # Calculate the DTW alignment
-    distance, paths = dtw.warping_paths(signal1, signal2)
-    best_path = dtw.best_path(paths)
-
-    # Align the signals based on DTW path
-    aligned_signal1 = [signal1[i] for i, j in best_path]
-    aligned_signal2 = [signal2[j] for i, j in best_path]
-
-    return np.array(aligned_signal1), np.array(aligned_signal2), best_path
-
-# Example usage with dummy data
-signal1 = data[1][1]
-signal2 = data[3][1]
-
-aligned_signal1, aligned_signal2, path = align_signals(signal1, signal2)
-
-# Plotting the results
-plt.plot(aligned_signal1, label='Aligned Signal 1')
-plt.plot(aligned_signal2, label='Aligned Signal 2')
-plt.legend()
-plt.show()
-
+# data = []
+# for stack in stacks:
+    
+#     # Pixel intensity distribution
+#     avgProj = np.mean(stack, axis=0)
+#     hist, bins = np.histogram(
+#         avgProj.flatten(), bins=1024, range=(0, 65535))    
+#     hist = gaussian_filter1d(hist, sigma=2)
+#     pks, _ = find_peaks(hist, distance=20)
+#     proms = peak_prominences(hist, pks)[0]
+#     sorted_pks = pks[np.argsort(proms)[::-1]]
+#     select_pks = sorted_pks[:3]
+    
+#     # Get masks
+#     thresh1 = bins[select_pks[1]] - (
+#         (bins[select_pks[1]] - bins[select_pks[0]]) / 2)
+#     thresh2 = bins[select_pks[2]] - (
+#         (bins[select_pks[2]] - bins[select_pks[1]]) / 2)
+#     mask1 = (avgProj >= thresh1) & (avgProj <= thresh2)
+#     mask2 = avgProj >= thresh2
+    
+#     # Extract zProfiles
+#     zProf1, zProf2 = [], []
+#     for img in stack:
+#         zProf1.append(np.mean(img[mask1]))
+#         zProf2.append(np.mean(img[mask2]))
+#     zProf1 = (np.stack(zProf1) - np.mean(zProf1)) / np.std(zProf1)
+#     zProf2 = (np.stack(zProf2) - np.mean(zProf2)) / np.std(zProf2)
+    
+#     data.append({
+#         "avgProj": avgProj,
+#         "zProf1" : zProf1,
+#         "zProf2" : zProf2,
+#         "thresh1": thresh1,
+#         "thresh2": thresh2,
+#         "mask1"  : mask1,
+#         "mask2"  : mask2,
+#         })
+    
 #%%
-
-# io.imsave(
-#     Path(data_path, f"{stack_path.stem}_avgProjs_reg.tif"),
-#     avgProjs_reg, check_contrast=False,
-#     )
-
