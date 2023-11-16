@@ -8,10 +8,8 @@ import matplotlib.pyplot as plt
 from pystackreg import StackReg
 from scipy.ndimage import shift
 from joblib import Parallel, delayed
-from skimage.transform import rescale
 from scipy.ndimage import gaussian_filter1d
 from skimage.transform import downscale_local_mean
-from skimage.morphology import disk, binary_dilation
 from scipy.signal import find_peaks, peak_prominences
 
 #%% Comments ------------------------------------------------------------------
@@ -26,8 +24,6 @@ from scipy.signal import find_peaks, peak_prominences
 
 stack_idx = 7
 rsize_factor = 4
-thresh1_coeff = 1.0
-thresh2_coeff = 1.0
 data_path = "D:/local_Concrete/data/DIA"
 stack_name = "D1_ICONX_DoS"
 
@@ -164,138 +160,87 @@ def process_stack(stack_path):
         (bins[select_pks[1]] - bins[select_pks[0]]) / 2)
     thresh2 = bins[select_pks[2]] - (
         (bins[select_pks[2]] - bins[select_pks[1]]) / 2)
-    thresh1 *= thresh1_coeff
-    thresh2 *= thresh2_coeff
-    mask1 = avgProj >= thresh1
+    mask1 = (avgProj >= thresh1) & (avgProj <= thresh2)
     mask2 = avgProj >= thresh2
-    mask2 = binary_dilation(mask2, footprint=disk(3))
-    mask = mask1 ^ mask2
     
     # Correct stack
     stack = correct_stack(stack, cPlane)
     idx = np.any(np.isnan(stack), axis=(1, 2))
     stack = stack[~idx]
-       
-    # Outputs
-    data = {
-        "stack"  : stack,
-        "cPlane" : cPlane,
-        "avgProj": avgProj,
-        "thresh1": thresh1,
-        "thresh2": thresh2,
-        "mask1"  : mask1,
-        "mask2"  : mask2,
-        "mask"  : mask,
-        }
-        
-    return data
-
-#%%
-
-stack_data = []
-for stack_path in stack_paths:
-    if stack_name in stack_path.name: 
-        data = process_stack(stack_path)
-        stack_data.append(data)
-        io.imsave(
-            Path(data_path, f"{stack_path.stem}_process.tif"),
-            data["stack"].astype("float32"), check_contrast=False,
-            )
-
-#%%
-
-ref_data = stack_data[0]
-for i, data in enumerate(stack_data):
     
-    if i > 0:
-        
-        refStack = stack_data[0]["stack"]
-        refMask1 = stack_data[0]["mask1"]
-        
-        # Rescale stack
-        rscFactor = np.sqrt(
-            np.sum(refMask1) / np.sum(data["mask1"]))
-        rscStack = rescale(data["stack"], rscFactor)
-        
-        # Adjust canva size
-        dSize = (rscStack.shape[1] - refStack.shape[1]) // 2
-        if dSize > 0:
-            rscStack = rscStack[:, dSize : -dSize, dSize: -dSize] 
-        elif dSize < 0:
-            print("bug")
-        
-        # Get mask
-        avgProj = np.mean(rscStack, axis=0)
-        mask1 = avgProj >= data["thresh1"]
-        mask2 = avgProj >= data["thresh2"]
-        mask2 = binary_dilation(mask2, footprint=disk(3))
-        mask = mask1 ^ mask2
-        
-        # Outputs
-        stack_data[i]["stack"] = rscStack
-        stack_data[i]["mask1"] = mask1
-        stack_data[i]["mask2"] = mask2
-        stack_data[i]["mask"] = mask
-        
     # Extract zProfiles
     zProf1, zProf2 = [], []
-    for img in stack_data[i]["stack"]:
-        zProf1.append(np.mean(img[stack_data[i]["mask"]]))
-        zProf2.append(np.mean(img[stack_data[i]["mask"]]))
+    for img in stack:
+        zProf1.append(np.mean(img[mask1]))
+        zProf2.append(np.mean(img[mask2]))
     zProf1 = np.stack(zProf1) / np.mean(zProf1) - 1
     zProf2 = np.stack(zProf2) / np.mean(zProf2) - 1
     
     # Outputs
-    stack_data[i]["zProf1"] = zProf1
-    stack_data[i]["zProf2"] = zProf2
- 
-# io.imsave(
-#     Path(data_path, f"{stack_path.stem}_rescaled{tp2}.tif"),
-#     stack.astype("float32"), check_contrast=False,
-#     )
-
+    stack_data = {
+        "stack"  : stack,
+        "cPlane" : cPlane,
+        "avgProj": avgProj,
+        "zProf1" : zProf1,
+        "zProf2" : zProf2,
+        "thresh1": thresh1,
+        "thresh2": thresh2,
+        "mask1"  : mask1,
+        "mask2"  : mask2,
+        }
+        
+    return stack_data
 
 #%%
 
-data = stack_data[0]
+data = []
+for stack_path in stack_paths:
+    if stack_name in stack_path.name: 
+        stack_data = process_stack(stack_path)
+        data.append(stack_data)
+        io.imsave(
+            Path(data_path, f"{stack_path.stem}_process.tif"),
+            stack_data["stack"].astype("float32"), check_contrast=False,
+            )
+        io.imsave(
+            Path(data_path, f"{stack_path.stem}_cPlane.tif"),
+            stack_data["cPlane"].astype("float32"), check_contrast=False,
+            )
+
+#%%
 
 from scipy.signal import correlate
 
 tp1 = 0
-tp2 = 3
+tp2 = 1
 
-sig1 = stack_data[tp1]["zProf1"]
-sig2 = stack_data[tp2]["zProf1"]
-min_length = np.minimum(sig1.shape[0], sig2.shape[0])
-crop1 = sig1[0: min_length]
-crop2 = sig2[0: min_length]
-ccor = correlate(crop1, crop2, mode='full')
-lag = np.argmax(ccor) - min_length
-pad = np.full(np.abs(lag), np.nan)
-if lag > 0:
-    aCrop2 = np.concatenate((pad, crop2))
-elif lag < 0:
-    aCrop2 = crop2[lag:]
-
+signal1 = data[tp1]["zProf1"]
+signal2 = data[tp2]["zProf1"]
+crop1 = signal1[signal1.shape[0] // 2 - 100 : signal1.shape[0] // 2 + 100]
+crop2 = signal2[signal2.shape[0] // 2 - 100 : signal2.shape[0] // 2 + 100]
+cc = correlate(crop1, crop2, mode='full')
 
 # Plotting
 plt.figure(figsize=(6, 6))
 
-plt.subplot(3, 1, 1)
+# Original signals
+plt.subplot(2, 1, 1)
 plt.plot(crop1, label="crop1")
 plt.plot(crop2, label="crop2")
-plt.title("Original signal")
+plt.title("Original Signals")
+plt.xlabel("Index")
+plt.ylabel("Value")
 plt.legend()
 
-plt.subplot(3, 1, 2)
-plt.plot(ccor, label="ccor")
+# Aligned signals
+plt.subplot(2, 1, 2)
+plt.plot(cc, label="cc")
 plt.title("Cross correlation")
+plt.xlabel("Index")
+plt.ylabel("Value")
 plt.legend()
 
-plt.subplot(3, 1, 3)
-plt.plot(crop1, label="crop1")
-plt.plot(aCrop2, label="aCrop2")
-plt.title("Aligned signal")
-plt.legend()
+
+
 
 
