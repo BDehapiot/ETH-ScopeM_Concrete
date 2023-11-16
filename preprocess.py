@@ -97,6 +97,9 @@ def process_stack(stack_path):
     print(f"  Select : {z0}-{z1}")
     stack = stack[z0:z1, ...]   
     
+    # 
+    
+    
     # # Roll stack
     # print("  Roll   :", end='')
     # t0 = time.time()
@@ -193,20 +196,29 @@ io.imsave(
 
 # -----------------------------------------------------------------------------
 
-zpad = int(np.max(tPlane))
-pad = ((zpad, zpad), (0, 0), (0, 0))
-pStack = np.pad(stack, pad, mode='constant', constant_values=np.nan)
 
-cStack = []
-yxIdx = np.nonzero(mask)
-for i, img in enumerate(pStack):
-    if not np.any(np.isnan(img)):
-        zIdx = np.round(tPlane[yxIdx]).astype(int) + i
-        idx = tuple((zIdx, yxIdx[0], yxIdx[1]))
-        cImg = np.zeros_like(img)
-        cImg[yxIdx] = pStack[idx]
-        cStack.append(cImg)
-cStack = np.stack(cStack)
+def correct_tilt(stack, tPlane):
+    
+    # Pad stack
+    zpad = int(np.max(tPlane))
+    pad = ((zpad, zpad), (0, 0), (0, 0))
+    pStack = np.pad(stack, pad, mode='constant', constant_values=np.nan)
+
+    # Correct stack
+    cStack = []
+    yxIdx = np.nonzero(mask)
+    for i, img in enumerate(pStack):
+        if not np.any(np.isnan(img)):
+            zIdx = np.round(tPlane[yxIdx]).astype(int) + i
+            idx = tuple((zIdx, yxIdx[0], yxIdx[1]))
+            cImg = np.zeros_like(img)
+            cImg[yxIdx] = pStack[idx]
+            cStack.append(cImg)
+    cStack = np.stack(cStack)
+    
+    return cStack
+
+cStack = correct_tilt(stack, tPlane)
 
 io.imsave(
     Path(data_path, f"{stack_path.stem}_cStack_{tp}.tif"),
