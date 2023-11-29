@@ -214,49 +214,38 @@ io.imsave(
 
 # -----------------------------------------------------------------------------
 
-from scipy.ndimage import maximum_filter
+from scipy.ndimage import maximum_filter, distance_transform_edt
+from skimage.morphology import binary_erosion
+
+print("  EDM  :", end='')
+t0 = time.time()
+edm = stack_masked > 0
+edm = distance_transform_edt(edm)
+t1 = time.time()
+print(f" {(t1-t0):<5.2f}s") 
 
 def local_maxima(stack, threshold=None, size=11):
     filtered = maximum_filter(stack, size=size)
-    mask = (stack == filtered) & (filtered != 0)
-    coords = np.where(mask == True)
-    values = stack[mask]
+    locmax = (stack == filtered) & (filtered != 0)
+    coords = np.where(locmax == True)
+    values = stack[locmax]
     # if threshold is not None:
     #     local_max[stack < threshold] = False
-    return mask, coords, values
+    return locmax, coords, values
 
-mask, coords, values = local_maxima(stack_masked, threshold=1.5, size=21)
+locmax, coords, values = local_maxima(stack_masked, threshold=1.5, size=11)
 
-# stack_locmax = np.zeros_like(stack_masked)
-# stack_locmax[locmax] = 1
+for z in range(locmax.shape[0]):
+    temp_locmax = binary_dilation(locmax[z,...], footprint=disk(5))
+    temp_locmax = temp_locmax ^ binary_erosion(temp_locmax)
+    locmax[z,...] = temp_locmax
+    
+io.imsave(
+    Path(data_path, f"{data['stack_path'].stem}_locmax.tif"),
+    locmax.astype("uint16") * 65535, check_contrast=False,
+    )
 
-# io.imsave(
-#     Path(data_path, f"{data['stack_path'].stem}_local_max.tif"),
-#     local_max.astype("float32"), check_contrast=False,
-#     )
-
-#%%
-
-# from skimage.filters import difference_of_gaussians
-
-# def difference_of_gaussian(img, low_sigma):
-#     return difference_of_gaussians(img, low_sigma=low_sigma)
-
-# idx = 2
-# data = stack_data[idx]
-# stack_rsize = data["stack_rsize"]
-
-# print("  DoG     :", end='')
-# t0 = time.time()
-# stack_dog = Parallel(n_jobs=-1)(
-#         delayed(difference_of_gaussian)(img, 2) 
-#         for img in stack_rsize
-#         )
-# stack_dog = np.stack(stack_dog)
-# t1 = time.time()
-# print(f" {(t1-t0):<5.2f}s")  
-
-# io.imsave(
-#     Path(data_path, f"{data['stack_path'].stem}_dog.tif"),
-#     stack_dog.astype("float32"), check_contrast=False,
-#     )
+io.imsave(
+    Path(data_path, f"{data['stack_path'].stem}_edm.tif"),
+    edm.astype("float32"), check_contrast=False,
+    )
