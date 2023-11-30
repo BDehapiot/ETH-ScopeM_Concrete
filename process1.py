@@ -21,16 +21,11 @@ from scipy.ndimage import (
 
 #%% Parameters ----------------------------------------------------------------
 
-data_path = "D:/local_Concrete/data/DIA"
-stack_name = "D11_ICONX_DoS"
-
-rsize_factor = 4 # Image size reduction factor
+rsize_factor = 4
 mThresh_coeff = 1.0 # adjust matrix threshold
 rThresh_coeff = 1.0 # adjust rod threshold
-
-minHeight = 2.0
-minDist = 40 / rsize_factor
-minBord = 20 / rsize_factor
+data_path = "D:/local_Concrete/data/DIA"
+stack_name = "D11_ICONX_DoS"
 
 #%% Initialize ----------------------------------------------------------------
 
@@ -80,63 +75,6 @@ def get_masks(stack):
     mMask = mMask ^ rMask
     
     return avgProj, mThresh, rThresh, mMask, rMask
-
-# -----------------------------------------------------------------------------
-
-def normalize_image(img, yxShift, avgProj, mMask):
-    yxShift = [yxShift[0] * -1, yxShift[1] * -1]
-    avgProj = shift(avgProj, yxShift)
-    mMask = shift(mMask.astype("uint8"), yxShift)
-    img = np.divide(img, avgProj, where=avgProj!=0)
-    img *= mMask
-    return img
-
-def detect_local_maxima(stack, minDist=minDist):
-    max_filt = maximum_filter(stack, size=minDist)
-    locMax = (stack == max_filt) & (max_filt != 0)
-    return locMax
-
-def filt_local_maxima(
-        img, yxShift, lMax, mEDM, minHeight=minHeight, minBord=minBord):
-    yxShift = [yxShift[0] * -1, yxShift[1] * -1]
-    edm = shift(mEDM, yxShift)
-    lMax[img < minHeight] = False
-    lMax[edm < minBord] = False
-    return lMax
-
-def get_local_maxima(
-        stack, yxShifts, avgProj, mMask, mEDM,
-        minDist=minDist,
-        minHeight=minHeight,
-        minBord=minBord,
-        ):
-    
-    # Get normalized stack
-    stack_norm = Parallel(n_jobs=-1)(
-            delayed(normalize_image)(img, yxShift, avgProj, mMask) 
-            for img, yxShift in zip(stack, yxShifts)
-            )
-    stack_norm = np.stack(stack_norm)
-    
-    # Get local_maxima
-    locMax = detect_local_maxima(stack_norm, minDist=minDist)
-    
-    # Filter local_maxima
-    locMax = Parallel(n_jobs=-1)(
-            delayed(filt_local_maxima)(
-                img, yxShift, local_max, mEDM, 
-                minHeight=minHeight, 
-                minBord=minBord
-                ) 
-            for img, yxShift, local_max in zip(
-                    stack_norm, yxShifts, locMax
-                    )
-            )
-    locMax = np.stack(locMax)
-    
-    return locMax
-
-# -----------------------------------------------------------------------------
 
 def process_stack(stack_path, stack_data):
     
@@ -203,18 +141,6 @@ def process_stack(stack_path, stack_data):
         rEDM = rescale(rEDM, rscale_factor)
         t1 = time.time()
         print(f" {(t1-t0):<5.2f}s") 
-        
-    # Get local_maxima   
-    print("  LocMax  :", end='')
-    t0 = time.time()     
-    locMax = get_local_maxima(
-            stack_rsize, yxShifts, avgProj, mMask, mEDM,
-            minDist=minDist,
-            minHeight=minHeight,
-            minBord=minBord,
-            )
-    t1 = time.time()
-    print(f" {(t1-t0):<5.2f}s") 
          
     # Print variables
     print( "  ---------")
@@ -237,7 +163,6 @@ def process_stack(stack_path, stack_data):
         "rMask"        : rMask,
         "mEDM"         : mEDM,
         "rEDM"         : rEDM,
-        "locMax"       : locMax,
         })
 
 #%%
@@ -254,46 +179,128 @@ for data in stack_data:
         Path(data_path, f"{data['stack_path'].stem}_rsize.tif"),
         data["stack_rsize"].astype("float32"), check_contrast=False,
         )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
-    #     data["stack_roll"].astype("float32"), check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rMask.tif"),
-    #     data["rMask"].astype("uint8") * 255, check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_mMask.tif"),
-    #     data["mMask"].astype("uint8") * 255, check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rEDM.tif"),
-    #     data["rEDM"].astype("float32"), check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_mEDM.tif"),
-    #     data["mEDM"].astype("float32"), check_contrast=False,
-    #     )
     io.imsave(
-        Path(data_path, f"{data['stack_path'].stem}_locMax.tif"),
-        data["locMax"].astype("uint8") * 255, check_contrast=False,
+        Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
+        data["stack_roll"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rMask.tif"),
+        data["rMask"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mMask.tif"),
+        data["mMask"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rEDM.tif"),
+        data["rEDM"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mEDM.tif"),
+        data["mEDM"].astype("float32"), check_contrast=False,
         )
         
 #%%
 
-idxA = 0
-idxB = 3
-locMaxA = stack_data[idxA]["locMax"]
-locMaxB = stack_data[idxB]["locMax"]
-A = np.column_stack(np.where(stack_data[idxA]["locMax"]))
-B = np.column_stack(np.where(stack_data[idxB]["locMax"]))
+minHeight = 2.00
+minDist = 40 / rsize_factor
+minBord = 20 / rsize_factor
 
 # -----------------------------------------------------------------------------
 
-from pycpd import RigidRegistration
+idx = 1
+data = stack_data[idx]
 
-locMaxA = np.max(locMaxA, axis=0)
-locMaxB = np.max(locMaxB, axis=0)
+# -----------------------------------------------------------------------------
 
-reg = RigidRegistration(X=locMaxB, Y=locMaxA)
+stack_rsize = data["stack_rsize"]
+yxShifts = data["yxShifts"]
+avgProj = data["avgProj"]
+mMask = data["mMask"]
+rMask = data["rMask"]
+mEDM = data["mEDM"]
+rEDM = data["rEDM"]
 
+# -----------------------------------------------------------------------------
+
+def normalize_image(img, yxShift, avgProj, mMask):
+    yxShift = [yxShift[0] * -1, yxShift[1] * -1]
+    avgProj = shift(avgProj, yxShift)
+    mMask = shift(mMask.astype("uint8"), yxShift)
+    img = np.divide(img, avgProj, where=avgProj!=0)
+    img *= mMask
+    return img
+
+def get_local_maxima(stack, minDist=minDist):
+    max_filt = maximum_filter(stack, size=minDist)
+    local_maxima = (stack == max_filt) & (max_filt != 0)
+    return local_maxima
+
+def filt_local_maxima(
+        img, yxShift, local_max, mEDM, minHeight=minHeight, minBord=minBord):
+    yxShift = [yxShift[0] * -1, yxShift[1] * -1]
+    edm = shift(mEDM, yxShift)
+    local_max[img < minHeight] = False
+    local_max[edm < minBord] = False
+    return local_max
+
+# -----------------------------------------------------------------------------
+
+print("  normalize_image  :", end='')
+t0 = time.time()
+
+stack_masked = Parallel(n_jobs=-1)(
+        delayed(normalize_image)(img, yxShift, avgProj, mMask) 
+        for img, yxShift in zip(stack_rsize, yxShifts)
+        )
+stack_masked = np.stack(stack_masked)
+
+t1 = time.time()
+print(f" {(t1-t0):<5.2f}s") 
+
+# ---
+
+print("  get_local_maxima  :", end='')
+t0 = time.time()
+
+local_maxima = get_local_maxima(stack_masked, minDist=minDist)
+
+t1 = time.time()
+print(f" {(t1-t0):<5.2f}s") 
+
+# ---
+
+print("  filt_local_maxima  :", end='')
+t0 = time.time()
+
+local_maxima = Parallel(n_jobs=-1)(
+        delayed(filt_local_maxima)(
+            img, yxShift, local_max, mEDM, minHeight=minHeight, minBord=minBord
+            ) 
+        for img, yxShift, local_max in zip(
+                stack_masked, yxShifts, local_maxima
+                )
+        )
+local_maxima = np.stack(local_maxima)
+
+t1 = time.time()
+print(f" {(t1-t0):<5.2f}s") 
+
+# -----------------------------------------------------------------------------
+
+for z in range(local_maxima.shape[0]):
+    temp_local_maxima = binary_dilation(local_maxima[z,...], footprint=disk(5))
+    temp_local_maxima = temp_local_maxima ^ binary_erosion(temp_local_maxima)
+    local_maxima[z,...] = temp_local_maxima
+    
+# -----------------------------------------------------------------------------
+
+io.imsave(
+    Path(data_path, f"{data['stack_path'].stem}_stack_masked.tif"),
+    stack_masked.astype("float32"), check_contrast=False,
+    )
+    
+io.imsave(
+    Path(data_path, f"{data['stack_path'].stem}_local_maxima.tif"),
+    local_maxima.astype("uint16") * 65535, check_contrast=False,
+    )
