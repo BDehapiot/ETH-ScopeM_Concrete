@@ -235,6 +235,7 @@ for data in stack_data:
         
 #%%
 
+from skimage.filters import gaussian
 from skimage.morphology import remove_small_objects
 
 idxA, idxB = 0, 1
@@ -246,10 +247,71 @@ stackA_mask = remove_small_objects(stackA_mask, min_size=1024)
 stackB_mask = (stackB < 0.8) & (stackB > 0)
 stackB_mask = remove_small_objects(stackB_mask, min_size=1024)
 
+stackA_mask = gaussian(stackA_mask, sigma=2)
+stackB_mask = gaussian(stackB_mask, sigma=2)
+stackA_mask[stackA_mask < 0.5] = 0
+stackB_mask[stackB_mask < 0.5] = 0
+
+# stackA_mask_avg = np.mean(stackA_mask, axis=0)
+# stackB_mask_avg = np.mean(stackB_mask, axis=0)
+
 import napari
 viewer = napari.Viewer()
-viewer.add_image(stackA_mask, colormap="gray", rendering="attenuated_mip")
-viewer.add_image(stackB_mask, colormap="gray", rendering="attenuated_mip")
+viewer.add_image(stackA_mask, rendering="attenuated_mip")
+viewer.add_image(stackB_mask, rendering="attenuated_mip")
+# viewer.add_image(stackA_mask_avg)
+# viewer.add_image(stackB_mask_avg)
+# viewer.add_image(stackA)
+# viewer.add_image(stackB)
 
 #%%
 
+import SimpleITK as sitk
+
+sitkA = sitk.GetImageFromArray(stackA_mask.astype("float32"))
+sitkB = sitk.GetImageFromArray(stackB_mask.astype("float32"))
+
+# Choose Registration Components
+transform_type = sitk.CenteredTransformInitializer(
+    sitkA, sitkB, 
+    sitk.Euler3DTransform(), 
+    sitk.CenteredTransformInitializerFilter.GEOMETRY
+    )
+
+# Initialize registration method
+registration_method = sitk.ImageRegistrationMethod()
+registration_method.SetMetricAsMeanSquares()
+
+# Set optimizer
+registration_method.SetOptimizerAsGradientDescent(
+    learningRate=1.0, 
+    numberOfIterations=100
+    )
+
+# Set interpolator
+registration_method.SetInterpolator(sitk.sitkLinear)
+
+# Initialize the Registration Method
+registration_method.SetInitialTransform(transform_type)
+
+# Execute the Registration
+final_transform = registration_method.Execute(sitkA, sitkB)
+print("Transformation Parameters:", final_transform.GetParameters())
+
+# Apply the Transformation
+sitkB_reg = sitk.Resample(
+    sitkB, sitkA, 
+    final_transform, 
+    sitk.sitkLinear, 
+    0.0, sitkB.GetPixelID()
+    )
+
+testA = sitk.GetArrayFromImage(sitkA)
+testB = sitk.GetArrayFromImage(sitkB)
+testB_reg = sitk.GetArrayFromImage(sitkB_reg)
+
+import napari
+viewer = napari.Viewer()
+viewer.add_image(testB_reg, rendering="attenuated_mip")
+viewer.add_image(testB, rendering="attenuated_mip")
+viewer.add_image(testA, rendering="attenuated_mip")
