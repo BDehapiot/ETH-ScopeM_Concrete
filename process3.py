@@ -7,7 +7,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from pystackreg import StackReg
 from scipy.ndimage import shift
-from skimage.filters import median
 from joblib import Parallel, delayed
 from skimage.transform import rescale
 from skimage.transform import downscale_local_mean
@@ -82,15 +81,6 @@ def get_masks(stack):
     
     return avgProj, mThresh, rThresh, mMask, rMask
 
-def normalize_image(img, yxShift, avgProj, mMask):
-    yxShift = [yxShift[0] * -1, yxShift[1] * -1]
-    avgProj = shift(avgProj, yxShift)
-    mMask = shift(mMask.astype("uint8"), yxShift)
-    img = np.divide(img, avgProj, where=avgProj!=0)
-    img = median(img, footprint=disk(5)) # test
-    img *= mMask
-    return img
-
 # -----------------------------------------------------------------------------
 
 def process_stack(stack_path, stack_data):
@@ -158,17 +148,6 @@ def process_stack(stack_path, stack_data):
         rEDM = rescale(rEDM, rscale_factor)
         t1 = time.time()
         print(f" {(t1-t0):<5.2f}s") 
-        
-    # Normalize stack
-    print("  Norm    :", end='')
-    t0 = time.time()
-    stack_norm = Parallel(n_jobs=-1)(
-            delayed(normalize_image)(img, yxShift, avgProj, mMask) 
-            for img, yxShift in zip(stack_rsize, yxShifts)
-            )
-    stack_norm = np.stack(stack_norm)
-    t1 = time.time()
-    print(f" {(t1-t0):<5.2f}s") 
          
     # Print variables
     print( "  ---------")
@@ -183,7 +162,6 @@ def process_stack(stack_path, stack_data):
         "stack_path"   : stack_path,
         "stack_rsize"  : stack_rsize,
         "stack_roll"   : stack_roll,
-        "stack_norm"   : stack_norm,
         "yxShifts"     : yxShifts,
         "avgProj"      : avgProj,
         "mThresh"      : mThresh,
@@ -212,10 +190,6 @@ for data in stack_data:
     #     Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
     #     data["stack_roll"].astype("float32"), check_contrast=False,
     #     )
-    io.imsave(
-        Path(data_path, f"{data['stack_path'].stem}_norm.tif"),
-        data["stack_norm"].astype("float32"), check_contrast=False,
-        )
     # io.imsave(
     #     Path(data_path, f"{data['stack_path'].stem}_rMask.tif"),
     #     data["rMask"].astype("uint8") * 255, check_contrast=False,
@@ -235,21 +209,6 @@ for data in stack_data:
         
 #%%
 
-from skimage.morphology import remove_small_objects
-
 idxA, idxB = 0, 1
-stackA = stack_data[idxA]["stack_norm"]
-stackB = stack_data[idxB]["stack_norm"]
-
-stackA_mask = (stackA < 0.8) & (stackA > 0)
-stackA_mask = remove_small_objects(stackA_mask, min_size=1024)
-stackB_mask = (stackB < 0.8) & (stackB > 0)
-stackB_mask = remove_small_objects(stackB_mask, min_size=1024)
-
-import napari
-viewer = napari.Viewer()
-viewer.add_image(stackA_mask, colormap="gray", rendering="attenuated_mip")
-viewer.add_image(stackB_mask, colormap="gray", rendering="attenuated_mip")
-
-#%%
-
+stackA = stack_data[idxA]["stack_rsize"]
+stackB = stack_data[idxB]["stack_rsize"]

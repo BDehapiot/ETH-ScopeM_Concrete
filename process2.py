@@ -7,7 +7,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from pystackreg import StackReg
 from scipy.ndimage import shift
-from skimage.filters import median
 from joblib import Parallel, delayed
 from skimage.transform import rescale
 from skimage.transform import downscale_local_mean
@@ -82,14 +81,60 @@ def get_masks(stack):
     
     return avgProj, mThresh, rThresh, mMask, rMask
 
+# -----------------------------------------------------------------------------
+
 def normalize_image(img, yxShift, avgProj, mMask):
     yxShift = [yxShift[0] * -1, yxShift[1] * -1]
     avgProj = shift(avgProj, yxShift)
     mMask = shift(mMask.astype("uint8"), yxShift)
     img = np.divide(img, avgProj, where=avgProj!=0)
-    img = median(img, footprint=disk(5)) # test
     img *= mMask
     return img
+
+def detect_local_maxima(stack, minDist=minDist):
+    max_filt = maximum_filter(stack, size=minDist)
+    locMax = (stack == max_filt) & (max_filt != 0)
+    return locMax
+
+def filt_local_maxima(
+        img, yxShift, lMax, mEDM, minHeight=minHeight, minBord=minBord):
+    yxShift = [yxShift[0] * -1, yxShift[1] * -1]
+    edm = shift(mEDM, yxShift)
+    lMax[img < minHeight] = False
+    lMax[edm < minBord] = False
+    return lMax
+
+def get_local_maxima(
+        stack, yxShifts, avgProj, mMask, mEDM,
+        minDist=minDist,
+        minHeight=minHeight,
+        minBord=minBord,
+        ):
+    
+    # Get normalized stack
+    stack_norm = Parallel(n_jobs=-1)(
+            delayed(normalize_image)(img, yxShift, avgProj, mMask) 
+            for img, yxShift in zip(stack, yxShifts)
+            )
+    stack_norm = np.stack(stack_norm)
+    
+    # Get local_maxima
+    locMax = detect_local_maxima(stack_norm, minDist=minDist)
+    
+    # Filter local_maxima
+    locMax = Parallel(n_jobs=-1)(
+            delayed(filt_local_maxima)(
+                img, yxShift, local_max, mEDM, 
+                minHeight=minHeight, 
+                minBord=minBord
+                ) 
+            for img, yxShift, local_max in zip(
+                    stack_norm, yxShifts, locMax
+                    )
+            )
+    locMax = np.stack(locMax)
+    
+    return locMax
 
 # -----------------------------------------------------------------------------
 
@@ -159,14 +204,15 @@ def process_stack(stack_path, stack_data):
         t1 = time.time()
         print(f" {(t1-t0):<5.2f}s") 
         
-    # Normalize stack
-    print("  Norm    :", end='')
-    t0 = time.time()
-    stack_norm = Parallel(n_jobs=-1)(
-            delayed(normalize_image)(img, yxShift, avgProj, mMask) 
-            for img, yxShift in zip(stack_rsize, yxShifts)
+    # Get local_maxima   
+    print("  LocMax  :", end='')
+    t0 = time.time()     
+    locMax = get_local_maxima(
+            stack_rsize, yxShifts, avgProj, mMask, mEDM,
+            minDist=minDist,
+            minHeight=minHeight,
+            minBord=minBord,
             )
-    stack_norm = np.stack(stack_norm)
     t1 = time.time()
     print(f" {(t1-t0):<5.2f}s") 
          
@@ -183,7 +229,6 @@ def process_stack(stack_path, stack_data):
         "stack_path"   : stack_path,
         "stack_rsize"  : stack_rsize,
         "stack_roll"   : stack_roll,
-        "stack_norm"   : stack_norm,
         "yxShifts"     : yxShifts,
         "avgProj"      : avgProj,
         "mThresh"      : mThresh,
@@ -192,6 +237,7 @@ def process_stack(stack_path, stack_data):
         "rMask"        : rMask,
         "mEDM"         : mEDM,
         "rEDM"         : rEDM,
+        "locMax"       : locMax,
         })
 
 #%%
@@ -212,10 +258,6 @@ for data in stack_data:
     #     Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
     #     data["stack_roll"].astype("float32"), check_contrast=False,
     #     )
-    io.imsave(
-        Path(data_path, f"{data['stack_path'].stem}_norm.tif"),
-        data["stack_norm"].astype("float32"), check_contrast=False,
-        )
     # io.imsave(
     #     Path(data_path, f"{data['stack_path'].stem}_rMask.tif"),
     #     data["rMask"].astype("uint8") * 255, check_contrast=False,
@@ -232,24 +274,85 @@ for data in stack_data:
     #     Path(data_path, f"{data['stack_path'].stem}_mEDM.tif"),
     #     data["mEDM"].astype("float32"), check_contrast=False,
     #     )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_locMax.tif"),
+        data["locMax"].astype("uint8") * 255, check_contrast=False,
+        )
         
 #%%
 
-from skimage.morphology import remove_small_objects
+idxA = 0
+idxB = 3
+stackA = stack_data[idxA]["stack_rsize"]
+stackB = stack_data[idxB]["stack_rsize"]
+locMaxA = stack_data[idxA]["locMax"]
+locMaxB = stack_data[idxB]["locMax"]
 
-idxA, idxB = 0, 1
-stackA = stack_data[idxA]["stack_norm"]
-stackB = stack_data[idxB]["stack_norm"]
+# -----------------------------------------------------------------------------
 
-stackA_mask = (stackA < 0.8) & (stackA > 0)
-stackA_mask = remove_small_objects(stackA_mask, min_size=1024)
-stackB_mask = (stackB < 0.8) & (stackB > 0)
-stackB_mask = remove_small_objects(stackB_mask, min_size=1024)
+A = np.column_stack(np.where(locMaxA)) 
+B = np.column_stack(np.where(locMaxB)) 
+
+# -----------------------------------------------------------------------------
 
 import napari
-viewer = napari.Viewer()
-viewer.add_image(stackA_mask, colormap="gray", rendering="attenuated_mip")
-viewer.add_image(stackB_mask, colormap="gray", rendering="attenuated_mip")
+viewerA = napari.Viewer()
+viewerA.add_image(stackA, colormap="gray")
+viewerA.add_points(
+    A, size=10, face_color='transparent', edge_color='red', edge_width=0.1)
+
+viewerB = napari.Viewer()
+viewerB.add_image(stackB, colormap="gray")
+viewerB.add_points(
+    B, size=10, face_color='transparent', edge_color='red', edge_width=0.1)
+
+    
+#%%
+
+# idxA = 0
+# idxB = 3
+# locMaxA = stack_data[idxA]["locMax"]
+# locMaxB = stack_data[idxB]["locMax"]
+
+# # -----------------------------------------------------------------------------
+
+# max_z = max(locMaxA.shape[0], locMaxB.shape[0])
+# max_y = max(locMaxA.shape[1], locMaxB.shape[1])
+# max_x = max(locMaxA.shape[2], locMaxB.shape[2])
+# tmpArrayA = np.zeros((max_z, max_y, max_x))
+# tmpArrayB = np.zeros((max_z, max_y, max_x))
+# tmpArrayA[:locMaxA.shape[0], :locMaxA.shape[1], :locMaxA.shape[2]] = locMaxA
+# tmpArrayB[:locMaxB.shape[0], :locMaxB.shape[1], :locMaxB.shape[2]] = locMaxB
+# locMaxA = tmpArrayA
+# locMaxB = tmpArrayB
+
+# -----------------------------------------------------------------------------
+
+# from pycpd import RigidRegistration
+
+# # locMaxA = np.max(locMaxA, axis=0)
+# # locMaxB = np.max(locMaxB, axis=0)
+# A = np.column_stack(np.where(stack_data[idxA]["locMax"]))
+# B = np.column_stack(np.where(stack_data[idxB]["locMax"]))
+
+# reg = RigidRegistration(X=A, Y=B)
+# TY, (s_reg, R_reg, t_reg) = reg.register()
+
+# # -----------------------------------------------------------------------------
+
+# TY = np.round(TY).astype(int)
+# TY = ((TY[:, 0], TY[:, 1], TY[:, 2]))
+# locMaxB_reg = np.zeros((max_z, max_y, max_x))
+# locMaxB_reg[TY] = 1
 
 #%%
 
+# locMaxA = binary_dilation(locMaxA, footprint=ball(3))
+# locMaxB = binary_dilation(locMaxB, footprint=ball(3))
+# locMaxB_reg = binary_dilation(locMaxB_reg, footprint=ball(3))
+
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(locMaxA, colormap="gray")
+# viewer.add_image(locMaxB, colormap="red")
+# viewer.add_image(locMaxB_reg, colormap="magenta")
