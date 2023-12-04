@@ -35,14 +35,14 @@ for i in range(10):
     radii.append(np.random.randint(8, 16))
     
 # Rotation matrices
-theta_z, theta_y, theta_x = 0, 0, 0
+theta_z, theta_y, theta_x = 0, 5, 0
 rot_z = R.from_euler('z', np.radians(theta_z)).as_matrix()
 rot_y = R.from_euler('y', np.radians(theta_y)).as_matrix()
 rot_x = R.from_euler('x', np.radians(theta_x)).as_matrix()
 rotation_matrix = rot_z @ rot_y @ rot_x
 
 # Translation vector
-translation_vector = np.array([0, 10, 0])
+translation_vector = np.array([0, 0, 0])
 
 # Transform centers
 centersB = []
@@ -76,7 +76,7 @@ sitkB = sitk.GetImageFromArray(hstackB)
 transform_type = sitk.CenteredTransformInitializer(
     sitkA, sitkB, 
     sitk.Euler3DTransform(), 
-    sitk.CenteredTransformInitializerFilter.GEOMETRY
+    sitk.CenteredTransformInitializerFilter.MOMENTS
     )
 
 # Initialize registration method
@@ -87,9 +87,9 @@ registration_method.SetMetricAsMeanSquares()
 # Set optimizer
 registration_method.SetOptimizerAsGradientDescent(
     learningRate=10, 
-    numberOfIterations=200,
+    numberOfIterations=100,
     convergenceMinimumValue=1e-4,
-    convergenceWindowSize=100,
+    convergenceWindowSize=20,
     )
 
 # Set interpolator
