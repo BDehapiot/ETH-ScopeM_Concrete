@@ -25,7 +25,7 @@ from scipy.ndimage import (
 data_path = "D:/local_Concrete/data/DIA"
 stack_name = "D11_ICONX_DoS"
 
-rsize_factor = 4 # Image size reduction factor
+rsize_factor = 8 # Image size reduction factor
 mThresh_coeff = 1.0 # adjust matrix threshold
 rThresh_coeff = 1.0 # adjust rod threshold
 
@@ -232,18 +232,78 @@ for data in stack_data:
     #     Path(data_path, f"{data['stack_path'].stem}_mEDM.tif"),
     #     data["mEDM"].astype("float32"), check_contrast=False,
     #     )
-        
+     
 #%%
 
-data = stack_data[2]
+from skimage.morphology import remove_small_objects
 
-temp = data["stack_rsize"]
-yxShifts = np.stack(data["yxShifts"])
-yShift = np.mean(yxShifts[:,0])
-xShift = np.mean(yxShifts[:,1])
-temp = shift(temp, [0, yShift, xShift], mode='wrap')
+idxA, idxB = 0, 1
+array1 = stack_data[idxA]["stack_norm"]
+array2 = stack_data[idxB]["stack_norm"]
 
-io.imsave(
-    Path(data_path, f"{data['stack_path'].stem}_temp.tif"),
-    temp.astype("float32"), check_contrast=False,
+# Binarize
+array1 = (array1 < 0.8) & (array1 > 0)
+array1 = remove_small_objects(array1, min_size=512) #
+array2 = (array2 < 0.8) & (array2 > 0)
+array2 = remove_small_objects(array2, min_size=512) #
+
+# Match size
+max_z = max(array1.shape[0], array2.shape[0])
+max_y = max(array1.shape[1], array2.shape[1])
+max_x = max(array1.shape[2], array2.shape[2])
+
+pad_z1 = max_z - array1.shape[0]
+pad_y1 = max_y - array1.shape[1]
+pad_x1 = max_x - array1.shape[2]
+array1 = np.pad(
+    array1, ((0, pad_z1), (0, pad_y1), (0, pad_x1)), mode='constant')
+
+pad_z2 = max_z - array2.shape[0]
+pad_y2 = max_y - array2.shape[1]
+pad_x2 = max_x - array2.shape[2]
+array2 = np.pad(
+    array2, ((0, pad_z2), (0, pad_y2), (0, pad_x2)), mode='constant')
+
+# Convert to float
+array1 = array1.astype(float)
+array2 = array2.astype(float)
+
+# Display
+import napari
+viewer = napari.Viewer()
+viewer.add_image(array2, colormap="green", rendering="attenuated_mip")
+viewer.add_image(array1, colormap="gray", rendering="attenuated_mip")
+    
+#%%
+
+from dipy.align.imaffine import MutualInformationMetric, AffineRegistration
+from dipy.align.transforms import RigidTransform3D
+
+# Set up the Mutual Information metric
+metric = MutualInformationMetric(nbins=32, sampling_proportion=100)
+
+# Initialize the Affine registration object with the Rigid transform
+affreg = AffineRegistration(
+    metric=metric, 
+    level_iters=[10000, 1000, 100], 
+    sigmas=[3.0, 1.0, 0.0], 
+    factors=[4, 2, 1]
     )
+
+# Apply the rigid body registration
+rigid = affreg.optimize(
+    static=array1, 
+    moving=array2, 
+    transform=RigidTransform3D(),
+    params0=None, 
+    starting_affine=np.eye(4)
+    )
+
+# Apply the transformation
+array2_reg = rigid.transform(array2)
+
+import napari
+viewer = napari.Viewer()
+viewer.add_image(array2_reg, colormap="magenta", rendering="attenuated_mip")
+viewer.add_image(array2, colormap="green", rendering="attenuated_mip")
+viewer.add_image(array1, colormap="gray", rendering="attenuated_mip")

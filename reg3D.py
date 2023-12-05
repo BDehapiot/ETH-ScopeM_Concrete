@@ -28,21 +28,21 @@ def draw_ball(center, radius, hstack1):
 centersA, radii = [], []
 for i in range(10):
     centersA.append((
-        np.random.randint(32, 224),
-        np.random.randint(32, 224),
-        np.random.randint(32, 224),
+        np.random.randint(64, 192),
+        np.random.randint(64, 192),
+        np.random.randint(64, 192),
         ))   
     radii.append(np.random.randint(8, 16))
     
 # Rotation matrices
-theta_z, theta_y, theta_x = 0, 0, 0
+theta_z, theta_y, theta_x = 5, 10, 20
 rot_z = R.from_euler('z', np.radians(theta_z)).as_matrix()
 rot_y = R.from_euler('y', np.radians(theta_y)).as_matrix()
 rot_x = R.from_euler('x', np.radians(theta_x)).as_matrix()
 rotation_matrix = rot_z @ rot_y @ rot_x
 
 # Translation vector
-translation_vector = np.array([0, 10, 0])
+translation_vector = np.array([10, 10, 5])
 
 # Transform centers
 centersB = []
@@ -67,57 +67,36 @@ for centerA, centerB, radius in zip(centersA, centersB, radii):
 
 #%%
 
-import SimpleITK as sitk
+from dipy.align.imaffine import MutualInformationMetric, AffineRegistration
+from dipy.align.transforms import RigidTransform3D
 
-sitkA = sitk.GetImageFromArray(hstackA)
-sitkB = sitk.GetImageFromArray(hstackB)
+# Set up the Mutual Information metric
+metric = MutualInformationMetric(nbins=32, sampling_proportion=100)
 
-# Choose Registration Components
-transform_type = sitk.CenteredTransformInitializer(
-    sitkA, sitkB, 
-    sitk.Euler3DTransform(), 
-    sitk.CenteredTransformInitializerFilter.GEOMETRY
+# Initialize the Affine registration object with the Rigid transform
+affreg = AffineRegistration(
+    metric=metric, 
+    level_iters=[10000, 1000, 100], 
+    sigmas=[3.0, 1.0, 0.0], 
+    factors=[4, 2, 1]
     )
 
-# Initialize registration method
-registration_method = sitk.ImageRegistrationMethod()
-registration_method.SetMetricAsMeanSquares()
-# registration_method.SetMetricAsJointHistogramMutualInformation()
-
-# Set optimizer
-registration_method.SetOptimizerAsGradientDescent(
-    learningRate=10, 
-    numberOfIterations=200,
-    convergenceMinimumValue=1e-4,
-    convergenceWindowSize=100,
+# Apply the rigid body registration
+rigid = affreg.optimize(
+    static=hstackA, 
+    moving=hstackB, 
+    transform=RigidTransform3D(),
+    params0=None, 
+    starting_affine=np.eye(4)
     )
 
-# Set interpolator
-registration_method.SetInterpolator(sitk.sitkLinear)
+# Apply the transformation to hstackB for alignment
+hstackB_aligned = rigid.transform(hstackB)
 
-# Initialize the Registration Method
-registration_method.SetInitialTransform(transform_type)
-
-# Execute the Registration
-final_transform = registration_method.Execute(sitkA, sitkB)
-print("Transformation Parameters:", final_transform.GetParameters())
-print('Final metric value: {0}'.format(registration_method.GetMetricValue()))
-print('Optimizer\'s stopping condition, {0}'.format(registration_method.GetOptimizerStopConditionDescription()))
-
-# Apply the Transformation
-RegB = sitk.Resample(
-    sitkB, sitkA, 
-    final_transform, 
-    sitk.sitkLinear, 
-    0.0, sitkB.GetPixelID()
-    )
-
-RawA = sitk.GetArrayFromImage(sitkA)
-RawB = sitk.GetArrayFromImage(sitkB)
-RegB = sitk.GetArrayFromImage(RegB)
+#%%
 
 import napari
 viewer = napari.Viewer()
-viewer.add_image(RegB, colormap='magenta', rendering="attenuated_mip")
-viewer.add_image(RawB, colormap='green', rendering="attenuated_mip")
-viewer.add_image(RawA, colormap='gray', rendering="attenuated_mip")
+viewer.add_image(hstackB_aligned, colormap='magenta', rendering="attenuated_mip")
+viewer.add_image(hstackB, colormap='green', rendering="attenuated_mip")
+viewer.add_image(hstackA, colormap='gray', rendering="attenuated_mip")
