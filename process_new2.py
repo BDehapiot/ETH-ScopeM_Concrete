@@ -297,83 +297,248 @@ for stack_path in stack_paths:
             
 #%%
 
-idx = 1
-obj_props_ref = stack_data[0]["obj_props"]
-obj_props_reg = stack_data[idx]["obj_props"]
-stack_rsize_ref = stack_data[0]["stack_norm"]
-stack_rsize_reg = stack_data[idx]["stack_norm"]
+# def get_object_EDM(idx, obj_labels_3D, mtx_mask_3D):
+    
+#     # Measure object EDM avg
+#     labels = obj_labels_3D.copy()
+#     labels[labels == idx] = 0
+#     obj_EDM_3D = distance_transform_edt(1 - labels > 0)
+#     obj_EDM_3D[mtx_mask_3D == 0] = 0
+#     obj_EDM_avg = np.mean(obj_EDM_3D[obj_labels_3D == idx])
+    
+#     return obj_EDM_avg
 
-# -----------------------------------------------------------------------------
-
-obj_tests = []
-for obj_prop_ref in obj_props_ref:
-    obj_test = []
-    for obj_prop_reg in obj_props_reg:
-        tmp = [
-            obj_prop_ref[2] / obj_prop_reg[2],
-            obj_prop_ref[3] / obj_prop_reg[3],
-            obj_prop_ref[4] / obj_prop_reg[4],
-            obj_prop_ref[5] / obj_prop_reg[5],
-            ]
-        obj_test_avg = np.abs(1 - np.mean(tmp))
-        obj_test_std = np.std(tmp)
-        obj_test.append((obj_test_avg + obj_test_std) / 2)
-    obj_tests.append(obj_test)      
-
-obj_coords_ref, obj_coords_reg = [], []
-for idx_ref, obj_test in enumerate(obj_tests):
-    idx_reg = np.argmin(obj_test)
-    score = np.min(obj_test)
-    if score < 0.03: # parameter
-        obj_coords_ref.append(obj_props_ref[idx_ref][1])
-        obj_coords_reg.append(obj_props_reg[idx_reg][1])
-obj_coords_ref = np.stack(obj_coords_ref)
-obj_coords_reg = np.stack(obj_coords_reg)
+# def get_object_properties(stack_norm, mtx_mask_3D, mtx_EDM_3D):
+    
+#     # Get object mask and labels
+#     obj_mask_3D = (stack_norm < 0.8) & (stack_norm > 0) # parameter
+#     obj_mask_3D = remove_small_objects(obj_mask_3D, min_size=256) # parameter
+#     obj_mask_3D = clear_border(obj_mask_3D)
+#     obj_labels_3D = label(obj_mask_3D)
+    
+#     # Get object properties
+#     obj_props = []
+#     mtx_EDM_3D /= np.max(mtx_EDM_3D)
+#     props = regionprops(obj_labels_3D, intensity_image=mtx_EDM_3D)
+#     for prop in props:
+#         obj_props.append((
+#             prop.label,
+#             prop.centroid,
+#             prop.area,
+#             prop.intensity_mean,
+#             prop.solidity,
+#             )) 
         
-# -----------------------------------------------------------------------------
-
-from scipy import ndimage
-from scipy.linalg import lstsq
-
-def affine_registration(ref, reg):
+#     # Get object EDM
+#     idxs = np.unique(obj_labels_3D)[1:]
+#     obj_EDM_avg = Parallel(n_jobs=-1)(
+#             delayed(get_object_EDM)(idx, obj_labels_3D, mtx_mask_3D) 
+#             for idx in idxs
+#             )
     
-    if ref.shape[0] < ref.shape[1]:
-        ref = ref.T
-        reg = reg.T
-    (n, dim) = ref.shape
+#     # Merge properties
+#     obj_props = [
+#         data + (obj_EDM_avg[i],) for i, data in enumerate(obj_props)]
     
-    # Compute least squares
-    p, res, rnk, s = lstsq(np.hstack((ref, np.ones([n, 1]))), reg)
-    # Get translation
-    t = p[-1].T
-    # Get transform matrix
-    T = p[:-1].T
+#     return obj_mask_3D, obj_labels_3D, obj_props
+
+# stack_norm = stack_data[0]["stack_norm"]
+# mtx_mask_3D = stack_data[0]["mtx_mask_3D"]
+# mtx_EDM_3D = stack_data[0]["mtx_EDM_3D"]
+
+# obj_mask_3D, obj_labels_3D, obj_props = get_object_properties(
+#     stack_norm, mtx_mask_3D, mtx_EDM_3D)
+
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(obj_EDM_3D)
+# viewer.add_image(mtx_mask_3D)
+# viewer.add_labels(obj_labels_3D)
+
+# idxA, idxB = 0, 2
+# stack_norm1 = stack_data[idxA]["stack_norm"]
+# stack_norm2 = stack_data[idxB]["stack_norm"]
+# mtx_mask1_3D = stack_data[idxA]["mtx_mask_3D"]
+# mtx_mask2_3D = stack_data[idxB]["mtx_mask_3D"]
+# mtx_EDM1_3D = stack_data[idxA]["mtx_EDM_3D"]
+# mtx_EDM2_3D = stack_data[idxB]["mtx_EDM_3D"]
+# mtx_EDM1_3D /= np.max(mtx_EDM1_3D)
+# mtx_EDM2_3D /= np.max(mtx_EDM2_3D)
+
+# # Binarize & labels
+# obj_mask1 = (stack_norm1 < 0.8) & (stack_norm1 > 0)
+# obj_mask1 = remove_small_objects(obj_mask1, min_size=512) #
+# obj_mask1 = clear_border(obj_mask1)
+# obj_mask2 = (stack_norm2 < 0.8) & (stack_norm2 > 0)
+# obj_mask2 = remove_small_objects(obj_mask2, min_size=512) #
+# obj_mask2 = clear_border(obj_mask2)
+# labels1 = label(obj_mask1)
+# labels2 = label(obj_mask2)
+
+# # -----------------------------------------------------------------------------
+
+# # Object EDMs
+# def get_object_EDM(idx, labels, mtx_mask_3D):
+#     tmp_labels = labels.copy()
+#     tmp_labels[tmp_labels == idx] = 0
+#     obj_EDM = distance_transform_edt(1 - tmp_labels > 0)
+#     obj_EDM[mtx_mask_3D == 0] = 0
+#     return obj_EDM
+
+# idx1 = np.unique(labels1)[1:]
+# obj_EDM1 = Parallel(n_jobs=-1)(
+#         delayed(get_object_EDM)(idx, labels1, mtx_mask1_3D) 
+#         for idx in idx1
+#         )
+# obj_EDM1 = np.stack(obj_EDM1)
+
+# idx2 = np.unique(labels2)[1:]
+# obj_EDM2 = Parallel(n_jobs=-1)(
+#         delayed(get_object_EDM)(idx, labels2, mtx_mask2_3D) 
+#         for idx in idx2
+#         )
+# obj_EDM2 = np.stack(obj_EDM2)
+
+# obj_EDM1_avg = []
+# for idx in idx1:
+#     obj_EDM1_avg.append(np.mean(obj_EDM1[idx - 1][labels1 == idx]))
     
-    # Merge translation and transform matrix
-    affine_transform = np.eye(4)
-    affine_transform[:3, :3] = T
-    affine_transform[:3, 3] = t
+# obj_EDM2_avg = []
+# for idx in idx2:
+#     obj_EDM2_avg.append(np.mean(obj_EDM2[idx - 1][labels2 == idx]))
+
+# # import napari
+# # viewer = napari.Viewer()
+# # viewer.add_image(obj_EDM1)
+# # viewer.add_image(obj_EDM2)
+
+# # -----------------------------------------------------------------------------
+
+# # Get properties
+# def get_properties(array, intensity_image):
+#     properties = []
+#     labels = label(array)
+#     props = regionprops(labels, intensity_image=intensity_image)
+#     for prop in props:
+#         properties.append((
+#             prop.label,
+#             prop.centroid,
+#             prop.area,
+#             prop.intensity_mean,
+#             prop.solidity,
+#             )) 
+#     return properties
+
+# properties1 = get_properties(obj_mask1, mtx_EDM1_3D)
+# properties2 = get_properties(obj_mask2, mtx_EDM2_3D)
+# properties1 = [data + (obj_EDM1_avg[i],) for i, data in enumerate(properties1)]
+# properties2 = [data + (obj_EDM2_avg[i],) for i, data in enumerate(properties2)]
+
+# # -----------------------------------------------------------------------------
+
+# test1 = np.stack([data[2:] for data in properties1])
+# test2 = np.stack([data[2:] for data in properties2])
+
+# tests = []
+# for idx1, prop1 in enumerate(properties1):
+#     test = []
+#     for idx2, prop2 in enumerate(properties2):
+#         tmp = [
+#             prop1[2] / prop2[2],
+#             prop1[3] / prop2[3],
+#             prop1[4] / prop2[4],
+#             prop1[5] / prop2[5],
+#             ]
+#         test_avg = np.abs(1 - np.mean(tmp))
+#         test_std = np.std(tmp)
+#         test.append((test_avg + test_std) / 2)
+#     tests.append(test)      
+
+# landmarks1, landmarks2 = [], []
+# labels1_match, labels2_match = np.zeros_like(labels1), np.zeros_like(labels2)
+# for idx1, test in enumerate(tests):
+#     idx2 = np.argmin(test)
+#     score = np.min(test)
+#     print(
+#         f"obj-{idx1:03d} / obj-{idx2:03d} / "
+#         f"score = {score:.3f}"
+#         )
+#     if score < 0.04:
+#         labels1_match[labels1 == idx1 + 1] = idx1 + 1
+#         labels2_match[labels2 == idx2 + 1] = idx1 + 1
+#         landmarks1.append(properties1[idx1][1])
+#         landmarks2.append(properties2[idx2][1])
     
-    return affine_transform
+# landmarks1 = np.stack(landmarks1)
+# landmarks2 = np.stack(landmarks2)
+        
+# # Display
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_labels(labels1_match)
+# viewer.add_labels(labels2_match)
 
-# Compute and apply affine registration
-affine_transform = affine_registration(obj_coords_ref, obj_coords_reg)
-stack_rsize_reg = ndimage.affine_transform(stack_rsize_reg, affine_transform)
+# #%%
 
-# Display
-import napari
-viewer = napari.Viewer()
-viewer.add_image(stack_rsize_reg)
-viewer.add_image(stack_rsize_ref)
+# from scipy.linalg import lstsq
 
-# io.imsave(
-#     Path(data_path, f"stack_rsize_reg.tif"),
-#     stack_rsize_reg.astype("float32"), check_contrast=False,
-#     )
-# io.imsave(
-#     Path(data_path, f"stack_rsize_ref.tif"),
-#     stack_rsize_ref.astype("float32"), check_contrast=False,
-#     )
+# # Inputs:
+# # - P, a (n,dim) [or (dim,n)] matrix, a point cloud of n points in dim dimension.
+# # - Q, a (n,dim) [or (dim,n)] matrix, a point cloud of n points in dim dimension.
+# # P and Q must be of the same shape.
+# # This function returns :
+# # - Pt, the P point cloud, transformed to fit to Q
+# # - (T,t) the affine transform
+
+# def affine_registration(P, Q):
+#     transposed = False
+#     if P.shape[0] < P.shape[1]:
+#         transposed = True
+#         P = P.T
+#         Q = Q.T
+#     (n, dim) = P.shape
+#     # Compute least squares
+#     p, res, rnk, s = lstsq(np.hstack((P, np.ones([n, 1]))), Q)
+#     # Get translation
+#     t = p[-1].T
+#     # Get transform matrix
+#     T = p[:-1].T
+#     # Compute transformed pointcloud
+#     Pt = P@T.T + t
+#     if transposed: Pt = Pt.T
+#     return Pt, (T, t)
+
+# Pt, (T, t) = affine_registration(landmarks1, landmarks2)
+
+# #%%
+
+# from scipy import ndimage
+
+# stack_rsize1 = stack_data[idxA]["stack_rsize"]
+# stack_rsize2 = stack_data[idxB]["stack_rsize"]
+
+# # Create a 4x4 affine transformation matrix
+# affine_transform = np.eye(4)
+# affine_transform[:3, :3] = T
+# affine_transform[:3, 3] = t
+
+# # Apply the transformation
+# transformed_image = ndimage.affine_transform(stack_rsize2, affine_transform)
+
+# # Display
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(transformed_image)
+# viewer.add_image(stack_rsize1)
+
+# # io.imsave(
+# #     Path(data_path, f"{data['stack_path'].stem}_ref.tif"),
+# #     stack_rsize1.astype("float32"), check_contrast=False,
+# #     )
+# # io.imsave(
+# #     Path(data_path, f"{data['stack_path'].stem}_reg.tif"),
+# #     transformed_image.astype("float32"), check_contrast=False,
+# #     )
 
 #%% Save ----------------------------------------------------------------------
 
@@ -437,57 +602,3 @@ for data in stack_data:
         Path(data_path, f"{data['stack_path'].stem}_mtx_EDM_3D.tif"),
         data["mtx_EDM_3D"].astype("float32"), check_contrast=False,
         )
-
-#%%
-
-# def get_object_EDM(idx, obj_labels_3D, mtx_mask_3D):
-    
-#     # Measure object EDM avg
-#     labels = obj_labels_3D.copy()
-#     labels[labels == idx] = 0
-#     obj_EDM_3D = distance_transform_edt(1 - labels > 0)
-#     obj_EDM_3D[mtx_mask_3D == 0] = 0
-#     obj_EDM_avg = np.mean(obj_EDM_3D[obj_labels_3D == idx])
-    
-#     return obj_EDM_avg
-
-# def get_object_properties(stack_norm, mtx_mask_3D, mtx_EDM_3D):
-    
-#     # Get object mask and labels
-#     obj_mask_3D = (stack_norm < 0.8) & (stack_norm > 0) # parameter
-#     obj_mask_3D = remove_small_objects(obj_mask_3D, min_size=256) # parameter
-#     obj_mask_3D = clear_border(obj_mask_3D)
-#     obj_labels_3D = label(obj_mask_3D)
-    
-#     # Get object properties
-#     obj_props = []
-#     mtx_EDM_3D /= np.max(mtx_EDM_3D)
-#     props = regionprops(obj_labels_3D, intensity_image=mtx_EDM_3D)
-#     for prop in props:
-#         obj_props.append((
-#             prop.label,
-#             prop.centroid,
-#             prop.area,
-#             prop.intensity_mean,
-#             prop.solidity,
-#             )) 
-        
-#     # Get object EDM
-#     idxs = np.unique(obj_labels_3D)[1:]
-#     obj_EDM_avg = Parallel(n_jobs=-1)(
-#             delayed(get_object_EDM)(idx, obj_labels_3D, mtx_mask_3D) 
-#             for idx in idxs
-#             )
-    
-#     # Merge properties
-#     obj_props = [
-#         data + (obj_EDM_avg[i],) for i, data in enumerate(obj_props)]
-    
-#     return obj_mask_3D, obj_labels_3D, obj_props
-
-# stack_norm = stack_data[0]["stack_norm"]
-# mtx_mask_3D = stack_data[0]["mtx_mask_3D"]
-# mtx_EDM_3D = stack_data[0]["mtx_EDM_3D"]
-
-# obj_mask_3D, obj_labels_3D, obj_props = get_object_properties(
-#     stack_norm, mtx_mask_3D, mtx_EDM_3D)
