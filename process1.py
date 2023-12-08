@@ -30,7 +30,7 @@ rod_thresh_coeff = 1.0 # adjust rod threshold
 #%% Paths ---------------------------------------------------------------------
 
 data_path = "D:/local_Concrete/data/DIA"
-stack_names = ["D1_ICONX_DoS", "D11_ICONX_DoS", "D12_ICONX_corrosion", "H9_ICONX_DoS"]
+stack_names = ["D1_ICONX_DoS", "D11_ICONX_DoS", "D12_ICONX_DoS", "H9_ICONX_DoS"]
 stack_name = stack_names[0]
 
 # List stacks 
@@ -304,8 +304,76 @@ stack_data = []
 for stack_path in stack_paths:
     if stack_name in stack_path.name: 
         process_stack(stack_path, stack_data)
-
+        
 #%%
+
+idx = 1
+obj_labels_3D_ref = stack_data[0]["obj_labels_3D"]
+obj_labels_3D_reg = stack_data[idx]["obj_labels_3D"]
+obj_props_ref = stack_data[0]["obj_props"]
+obj_props_reg = stack_data[idx]["obj_props"]
+stack_rsize_ref = stack_data[0]["stack_norm"]
+stack_rsize_reg = stack_data[idx]["stack_norm"]
+
+# # Display
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_labels(obj_labels_3D_ref)
+# viewer.add_labels(obj_labels_3D_reg)
+
+# -----------------------------------------------------------------------------
+
+obj_tests = []
+for obj_prop_ref in obj_props_ref:
+    obj_test = []
+    for obj_prop_reg in obj_props_reg:
+        tmp = [
+            obj_prop_ref[2] / obj_prop_reg[2],
+            obj_prop_ref[3] / obj_prop_reg[3],
+            obj_prop_ref[4] / obj_prop_reg[4],
+            obj_prop_ref[5] / obj_prop_reg[5],
+            ]
+        obj_test_avg = np.abs(1 - np.mean(tmp))
+        obj_test_std = np.std(tmp)
+        obj_test.append((obj_test_avg + obj_test_std) / 2)
+    obj_tests.append(obj_test)      
+
+mtchs = []
+for idx_ref, obj_test in enumerate(obj_tests):
+    idx_reg = np.argmin(obj_test)
+    score = np.min(obj_test)
+    if score < 0.08: # parameter
+        print(f"ref {idx_ref:03d} | reg {idx_reg:03d} | {score:.3f}")
+        mtchs.append((idx_ref, idx_reg, score))
+mtchs = np.stack(mtchs)
+
+uniques = np.unique(mtchs[:,1])
+for unique in uniques:
+    idxs = np.where(mtchs[:,1] == unique)[0]
+    if len(idxs) > 1:
+        idx = np.argmin(mtchs[idxs, 2])
+        idxs = np.delete(idxs, idx)
+        mtchs = np.delete(mtchs, idxs, axis=0)
+
+mtch_coords_ref, mtch_coords_reg = [], []
+mtch_labels_3D_ref = np.zeros_like(obj_labels_3D_ref)
+mtch_labels_3D_reg = np.zeros_like(obj_labels_3D_reg)
+for mtch in mtchs:
+    idx_ref, idx_reg = int(mtch[0]), int(mtch[1])
+    mtch_coords_ref.append(obj_props_ref[idx_ref][1])
+    mtch_coords_reg.append(obj_props_reg[idx_reg][1])
+    mtch_labels_3D_ref[obj_labels_3D_ref == idx_ref + 1] = idx_ref + 1
+    mtch_labels_3D_reg[obj_labels_3D_reg == idx_reg + 1] = idx_ref + 1
+mtch_coords_ref = np.stack(mtch_coords_ref)
+mtch_coords_reg = np.stack(mtch_coords_reg)
+
+# Display
+import napari
+viewer = napari.Viewer()
+viewer.add_labels(mtch_labels_3D_ref)
+viewer.add_labels(mtch_labels_3D_reg)
+
+# -----------------------------------------------------------------------------
 
 def get_distances(coords):
     num_points = len(coords)
@@ -316,8 +384,26 @@ def get_distances(coords):
                 distance_matrix[i][j] = np.linalg.norm(coords[i] - coords[j])
     return distance_matrix
 
+mtch_dist_ref = get_distances(mtch_coords_ref)
+mtch_dist_reg = get_distances(mtch_coords_reg)
+mtch_dist_scr = np.median(np.abs(mtch_dist_ref - mtch_dist_reg), axis=0)
+outliers = np.where(mtch_dist_scr > 2)[0]
+mtch_coords_ref = np.delete(mtch_coords_ref, outliers, axis=0)
+mtch_coords_reg = np.delete(mtch_coords_reg, outliers, axis=0)
+for outlier in outliers:
+    mtch_labels_3D_ref[mtch_labels_3D_ref == mtchs[outlier, 0] + 1] = 0
+    mtch_labels_3D_reg[mtch_labels_3D_reg == mtchs[outlier, 0] + 1] = 0
+    
+# Display
+import napari
+viewer = napari.Viewer()
+viewer.add_labels(mtch_labels_3D_ref)
+viewer.add_labels(mtch_labels_3D_reg)
+
+# -----------------------------------------------------------------------------
+
 def affine_registration(coords_ref, coords_reg):
-   
+    
     if coords_ref.shape[0] < coords_ref.shape[1]:
         coords_ref = coords_ref.T
         coords_reg = coords_reg.T
@@ -326,109 +412,27 @@ def affine_registration(coords_ref, coords_reg):
     # Compute least squares
     p, res, rnk, s = lstsq(
         np.hstack((coords_ref, np.ones([n, 1]))), coords_reg)
-    # Get translations & transform matrix
-    t, T = p[-1].T, p[:-1].T
+    # Get translation
+    t = p[-1].T
+    # Get transform matrix
+    T = p[:-1].T
     
-    # Merge translations and transform matrix
+    # Merge translation and transform
     transform_matrix = np.eye(4)
     transform_matrix[:3, :3] = T
     transform_matrix[:3, 3] = t
     
     return transform_matrix
 
-def get_transform_matrix(data_ref, data_reg):
-    
-    # Extract variables
-    obj_props_ref = data_ref["obj_props"]
-    obj_props_reg = data_reg["obj_props"]
-    obj_labels_3D_ref = data_ref["obj_labels_3D"]
-    obj_labels_3D_reg = data_ref["obj_labels_3D"]
-    
-    # Test object pairs
-    tests = []
-    props_ref = np.stack([data[2:] for data in obj_props_ref])
-    props_reg = np.stack([data[2:] for data in obj_props_reg])
-    for prop_ref in props_ref:
-        test = []
-        for prop_reg in props_reg:
-            ratio = prop_ref / prop_reg
-            ratio_avg = np.abs(1 - np.mean(ratio))
-            ratio_std = np.std(ratio)
-            test.append((ratio_avg + ratio_std) / 2)
-        tests.append(test)
-        
-    # Identify matching pairs
-    pairs = []
-    for idx_ref, test in enumerate(tests):
-        idx_reg = np.argmin(test)
-        score = np.min(test)
-        if score < 0.08: # parameter
-            pairs.append((idx_ref, idx_reg, score))
-    pairs = np.stack(pairs)
+# Compute and apply affine registration
+transform_matrix = affine_registration(mtch_coords_ref, mtch_coords_reg)
+stack_rsize_reg = affine_transform(stack_rsize_reg, transform_matrix)
 
-    # Keep best match only
-    for unique in np.unique(pairs[:,1]):
-        idxs = np.where(pairs[:,1] == unique)[0]
-        if len(idxs) > 1:
-            idx = np.argmin(pairs[idxs, 2])
-            idxs = np.delete(idxs, idx)
-            pairs = np.delete(pairs, idxs, axis=0)
-            
-    # Isolate pairs coordinates
-    coords_ref, coords_reg = [], []
-    labels_3D_ref = np.zeros_like(obj_labels_3D_ref)
-    labels_3D_reg = np.zeros_like(obj_labels_3D_reg)
-    for pair in pairs:
-        idx_ref, idx_reg = int(pair[0]), int(pair[1])
-        coords_ref.append(obj_props_ref[idx_ref][1])
-        coords_reg.append(obj_props_reg[idx_reg][1])
-        labels_3D_ref[obj_labels_3D_ref == idx_ref + 1] = idx_ref + 1
-        labels_3D_reg[obj_labels_3D_reg == idx_reg + 1] = idx_ref + 1
-    coords_ref = np.stack(coords_ref)
-    coords_reg = np.stack(coords_reg)
-    
-    # Remove false pairs
-    dist_ref = get_distances(coords_ref)
-    dist_reg = get_distances(coords_reg)
-    scores = np.median(np.abs(dist_ref - dist_reg), axis=0)
-    outliers = np.where(scores > 2)[0]
-    coords_ref = np.delete(coords_ref, outliers, axis=0)
-    coords_reg = np.delete(coords_reg, outliers, axis=0)
-    for outlier in outliers:
-        labels_3D_ref[labels_3D_ref == pairs[outlier, 0] + 1] = 0
-        labels_3D_reg[labels_3D_reg == pairs[outlier, 0] + 1] = 0
-        
-    # Compute transformation matrix
-    transform_matrix = affine_registration(coords_ref, coords_reg)
-    
-    return transform_matrix
-       
-#%%
-       
-stack_reg_data = [stack_data[0]["stack_rsize"]]
-for i in range(1, len(stack_data)):
-    transform_matrix = get_transform_matrix(stack_data[0], stack_data[i])
-    stack_reg_data.append(
-        affine_transform(stack_data[i]["stack_rsize"], transform_matrix)
-        )
-
-min_z = np.min([stack.shape[0] for stack in stack_reg_data])
-min_y = np.min([stack.shape[1] for stack in stack_reg_data]) 
-min_x = np.min([stack.shape[2] for stack in stack_reg_data])
-
-for i in range(len(stack_reg_data)):
-    stack_reg_data[i] = stack_reg_data[i][:min_z, :min_y, :min_x]
-stack_reg = np.stack(stack_reg_data)    
-
-io.imsave(
-    Path(data_path, "stack_reg.tif"),
-    stack_reg.astype("float32"),
-    check_contrast=False,
-    imagej=True,
-    metadata={'axes': 'TZYX'},
-    photometric='minisblack',
-    planarconfig='contig',
-    )
+# Display
+import napari
+viewer = napari.Viewer()
+viewer.add_image(stack_rsize_reg)
+viewer.add_image(stack_rsize_ref)
 
 #%% Save ----------------------------------------------------------------------
 
@@ -492,3 +496,9 @@ io.imsave(
 #         Path(data_path, f"{data['stack_path'].stem}_mtx_EDM_3D.tif"),
 #         data["mtx_EDM_3D"].astype("float32"), check_contrast=False,
 #         )
+
+#%%
+
+def resize_image(img_path):
+    return downscale_local_mean(io.imread(img_path), 1)
+
