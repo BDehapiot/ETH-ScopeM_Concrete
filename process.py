@@ -432,11 +432,23 @@ def get_transform_matrix(data_ref, data_reg):
 
 #%% Display (report) ----------------------------------------------------------
 
+from skimage.morphology import binary_erosion
+from skimage.filters import gaussian
+
 import napari
 viewer = napari.Viewer()
 
 for data in stack_data:    
-    viewer.add_image(data["avg_proj_3D"])
+    mtx_mask_3D = data["mtx_mask_3D"]
+    mtx_mask_3D = mtx_mask_3D ^ binary_erosion(mtx_mask_3D)
+    mtx_mask_3D = mtx_mask_3D.astype("uint8") * 255
+    mtx_mask_3D = gaussian(mtx_mask_3D, sigma=2)
+    viewer.add_image(
+        mtx_mask_3D,
+        rendering="attenuated_mip",
+        attenuation=0.5,
+        blending="additive",
+        opacity=0.2)
 
 #%% Save ----------------------------------------------------------------------
 
