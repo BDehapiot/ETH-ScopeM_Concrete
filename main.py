@@ -46,6 +46,59 @@ for folder in Path(data_path).iterdir():
 def resize_image(img_path):
     return downscale_local_mean(io.imread(img_path), rsize_factor)
 
+def roll_image(img_rsize):
+    idx = np.argwhere((img_rsize > 30000) == 1)
+    y0, x0 = img_rsize.shape[0] // 2, img_rsize.shape[1] // 2
+    y1, x1 = np.mean(idx, axis=0)
+    yx_shift = [y0 - y1, x0 - x1]
+    return shift(img_rsize, yx_shift, mode='wrap'), yx_shift 
+
+def get_2Dmasks(stack_roll):
+    
+    # Intensity distribution
+    avg_proj = np.mean(stack_roll, axis=0)
+    hist, bins = np.histogram(
+        avg_proj.flatten(), bins=1024, range=(0, 65535))    
+    hist = gaussian_filter1d(hist, sigma=2)
+    pks, _ = find_peaks(hist, distance=30)
+    proms = peak_prominences(hist, pks)[0]
+    sorted_pks = pks[np.argsort(proms)[::-1]]
+    select_pks = sorted_pks[:3]
+    
+    # Get masks
+    mtx_thresh = bins[select_pks[1]] - (
+        (bins[select_pks[1]] - bins[select_pks[0]]) / 2)
+    rod_thresh = bins[select_pks[2]] - (
+        (bins[select_pks[2]] - bins[select_pks[1]]) / 2)
+    mtx_thresh *= mtx_thresh_coeff
+    rod_thresh *= rod_thresh_coeff
+    mtx_mask = avg_proj >= mtx_thresh
+    rod_mask = avg_proj >= rod_thresh
+    rod_mask = binary_fill_holes(rod_mask)
+    rod_mask = binary_dilation(rod_mask, footprint=disk(1))
+    mtx_mask = mtx_mask ^ rod_mask
+    
+    return avg_proj, mtx_thresh, rod_thresh, mtx_mask, rod_mask
+
+def get_3Dmasks(
+        img_rsize, yx_shift, avg_proj, rod_mask, mtx_mask, rod_EDM, mtx_EDM):
+    
+    yx_shift = [yx_shift[0] * -1, yx_shift[1] * -1]
+    
+    # Shift 2D masks
+    avg_proj = shift(avg_proj, yx_shift)
+    rod_mask = shift(rod_mask.astype("uint8"), yx_shift)
+    mtx_mask = shift(mtx_mask.astype("uint8"), yx_shift)
+    rod_EDM = shift(rod_EDM, yx_shift)
+    mtx_EDM = shift(mtx_EDM, yx_shift)
+    
+    # Normalize img
+    img_norm = np.divide(img_rsize, avg_proj, where=avg_proj!=0)
+    img_norm = median(img_norm, footprint=disk(8 // rsize_factor)) # parameter
+    img_norm *= mtx_mask
+        
+    return img_norm, avg_proj, rod_mask, mtx_mask, rod_EDM, mtx_EDM
+
 # -----------------------------------------------------------------------------
 
 def process_stack(stack_path, stack_data):
@@ -79,7 +132,53 @@ def process_stack(stack_path, stack_data):
     z1 = np.where(
         (z_mean_diff > 0) & (z_mean > np.max(z_mean) * 0.9))[0][-1] + 1
     stack_rsize = stack_rsize[z0:z1, ...]  
+    
+    # Roll stack
+    print("  Roll    :", end='')
+    t0 = time.time()
+    outputs = Parallel(n_jobs=-1)(
+            delayed(roll_image)(img_rsize) 
+            for img_rsize in stack_rsize
+            )
+    stack_roll = np.stack([data[0] for data in outputs])
+    yx_shifts = [data[1] for data in outputs]
+    t1 = time.time()
+    print(f" {(t1-t0):<5.2f}s") 
+    
+    # Get 2D masks
+    print("  2Dmasks :", end='')
+    t0 = time.time()
+    (
+      avg_proj, mtx_thresh, rod_thresh,
+      mtx_mask, rod_mask
+      ) = get_2Dmasks(stack_roll)
+    t1 = time.time()
+    print(f" {(t1-t0):<5.2f}s") 
         
+    # Get EDM
+    mtx_EDM = distance_transform_edt(mtx_mask | rod_mask)
+    rod_EDM = distance_transform_edt(~rod_mask)
+    
+    # Get 3D masks
+    print("  3Dmasks :", end='')
+    t0 = time.time()
+    outputs = Parallel(n_jobs=-1)(
+            delayed(get_3Dmasks)(
+                img_rsize, yx_shift, avg_proj, 
+                rod_mask, mtx_mask, 
+                rod_EDM, mtx_EDM
+                ) 
+            for img_rsize, yx_shift in zip(stack_rsize, yx_shifts)
+            )    
+    stack_norm  = np.stack([data[0] for data in outputs])
+    avg_proj_3D = np.stack([data[1] for data in outputs])
+    rod_mask_3D = np.stack([data[2] for data in outputs])
+    mtx_mask_3D = np.stack([data[3] for data in outputs])
+    rod_EDM_3D  = np.stack([data[4] for data in outputs])
+    mtx_EDM_3D  = np.stack([data[5] for data in outputs])    
+    t1 = time.time()
+    print(f" {(t1-t0):<5.2f}s")
+    
     # Print variables
     print( "  -----------------")
     print(f"  zSlices  : {z0}-{z1}")
@@ -88,6 +187,21 @@ def process_stack(stack_path, stack_data):
     stack_data.append({
         "stack_path"    : stack_path,
         "stack_rsize"   : stack_rsize,
+        "stack_roll"    : stack_roll,
+        "stack_norm"    : stack_norm,
+        "yx_shifts"     : yx_shifts,
+        "avg_proj"      : avg_proj,
+        "mtx_thresh"    : mtx_thresh,
+        "rod_thresh"    : rod_thresh,
+        "mtx_mask"      : mtx_mask,
+        "rod_mask"      : rod_mask,
+        "mtx_EDM"       : mtx_EDM,
+        "rod_EDM"       : rod_EDM,
+        "avg_proj_3D"   : avg_proj_3D,
+        "rod_mask_3D"   : rod_mask_3D,
+        "mtx_mask_3D"   : mtx_mask_3D,
+        "rod_EDM_3D"    : rod_EDM_3D,
+        "mtx_EDM_3D"    : mtx_EDM_3D,
         })
     
 #%% Execute -------------------------------------------------------------------
@@ -97,79 +211,69 @@ for stack_path in stack_paths:
     if stack_name in stack_path.name: 
         process_stack(stack_path, stack_data)
         
-#%%
+#%% Experiment ----------------------------------------------------------------
 
-# Functions -------------------------------------------------------------------
+        
+#%% Save ----------------------------------------------------------------------
 
-def affine_registration(coords_ref, coords_reg):
+for data in stack_data:
     
-    if coords_ref.shape[0] < coords_ref.shape[1]:
-        coords_ref = coords_ref.T
-        coords_reg = coords_reg.T
-    (n, dim) = coords_ref.shape
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rsize.tif"),
+        data["stack_rsize"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
+        data["stack_roll"].astype("float32"), check_contrast=False,
+        )
+    # io.imsave(
+    #     Path(data_path, f"{data['stack_path'].stem}_norm.tif"),
+    #     data["stack_norm"].astype("float32"), check_contrast=False,
+    #     )
     
-    # Translations & transform matrices
-    p, res, rnk, s = lstsq(
-        np.hstack((coords_ref, np.ones([n, 1]))), coords_reg)
-    t, T = p[-1].T, p[:-1].T
+    # -------------------------------------------------------------------------
     
-    # Merge matrices
-    transform_matrix = np.eye(4)
-    transform_matrix[:3, :3] = T
-    transform_matrix[:3, 3] = t
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_avg_proj.tif"),
+        data["avg_proj"].astype("float32"), check_contrast=False,
+        )    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_mask.tif"),
+        data["rod_mask"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_mask.tif"),
+        data["mtx_mask"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_EDM.tif"),
+        data["rod_EDM"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_EDM.tif"),
+        data["mtx_EDM"].astype("float32"), check_contrast=False,
+        )
     
-    return transform_matrix
+    # -------------------------------------------------------------------------
+   
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_avg_proj_3D.tif"),
+        data["avg_proj_3D"].astype("float32"), check_contrast=False,
+        )    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_mask_3D.tif"),
+        data["rod_mask_3D"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_mask_3D.tif"),
+        data["mtx_mask_3D"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_EDM_3D.tif"),
+        data["rod_EDM_3D"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_EDM_3D.tif"),
+        data["mtx_EDM_3D"].astype("float32"), check_contrast=False,
+        )
 
-# -----------------------------------------------------------------------------
-
-stack = stack_data[0]["stack_rsize"]
-
-centroids = []
-for z, img in enumerate(stack):
-    idx = np.argwhere(
-        (gaussian(img, sigma=16 // rsize_factor) > 30000) == 1)   
-    y, x = np.mean(idx, axis=0)
-    centroids.append((z, y, x))
-centroids = np.stack(centroids)
-
-
-rod_vector = centroids[0] - centroids[-1]
-ref_vector = [rod_vector[0], 0, 0]
-
-rotation_axis = np.cross(rod_vector, ref_vector)
-
-# stack = shift(stack, zyx_shift, mode='wrap')
-
-
-
-# def roll_image(img_rsize):
-#     idx = np.argwhere((img_rsize > 30000) == 1)
-#     y0, x0 = img_rsize.shape[0] // 2, img_rsize.shape[1] // 2
-#     y1, x1 = np.mean(idx, axis=0)
-#     yx_shift = [y0 - y1, x0 - x1]
-#     return shift(img_rsize, yx_shift, mode='wrap'), yx_shift 
-
-# coords_ref, coords_reg = [], []
-# for z, img in enumerate(stack_rsize):
-#     idx = np.argwhere(
-#         (gaussian(img, sigma=16 // rsize_factor) > 30000) == 1)
-#     y_ref, x_ref = img.shape[0] / 2, img.shape[1] / 2
-#     y_reg, x_reg = np.mean(idx, axis=0)
-#     coords_ref.append((z, y_ref, x_ref))
-#     coords_reg.append((z, y_reg, x_reg))
-# coords_ref = np.stack(coords_ref)
-# coords_reg = np.stack(coords_reg)
-
-# -----------------------------------------------------------------------------
-
-# transform_matrix = affine_registration(coords_ref, coords_reg)
-# stack_rsize_reg = affine_transform(stack_rsize, transform_matrix)
-# print(transform_matrix)
-
-# -----------------------------------------------------------------------------
-
-# Display
-# import napari
-# viewer = napari.Viewer()
-# viewer.add_image(stack)
-# viewer.add_image(stack_rsize2)

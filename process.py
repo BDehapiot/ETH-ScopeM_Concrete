@@ -222,20 +222,20 @@ def process_stack(stack_path, stack_data):
     mtx_EDM = distance_transform_edt(mtx_mask | rod_mask)
     rod_EDM = distance_transform_edt(~rod_mask)
     
-    # # Rescale data
-    # if stack_data:
-    #     rscale_factor = np.sqrt(
-    #         np.sum(stack_data[0]["rod_mask"]) / np.sum(rod_mask))
-    #     print("  Rescale :", end='')
-    #     t0 = time.time()
-    #     stack_rsize = rescale(stack_rsize, rscale_factor)
-    #     avg_proj = rescale(avg_proj, rscale_factor)
-    #     mtx_mask = rescale(mtx_mask, rscale_factor, order=0)
-    #     rod_mask = rescale(rod_mask, rscale_factor, order=0)
-    #     mtx_EDM = rescale(mtx_EDM, rscale_factor)
-    #     rod_EDM = rescale(rod_EDM, rscale_factor)
-    #     t1 = time.time()
-    #     print(f" {(t1-t0):<5.2f}s") 
+    # Rescale data
+    if stack_data:
+        rscale_factor = np.sqrt(
+            np.sum(stack_data[0]["rod_mask"]) / np.sum(rod_mask))
+        print("  Rescale :", end='')
+        t0 = time.time()
+        stack_rsize = rescale(stack_rsize, rscale_factor)
+        avg_proj = rescale(avg_proj, rscale_factor)
+        mtx_mask = rescale(mtx_mask, rscale_factor, order=0)
+        rod_mask = rescale(rod_mask, rscale_factor, order=0)
+        mtx_EDM = rescale(mtx_EDM, rscale_factor)
+        rod_EDM = rescale(rod_EDM, rscale_factor)
+        t1 = time.time()
+        print(f" {(t1-t0):<5.2f}s") 
         
     # Get 3D masks
     print("  3Dmasks :", end='')
@@ -257,19 +257,19 @@ def process_stack(stack_path, stack_data):
     t1 = time.time()
     print(f" {(t1-t0):<5.2f}s")
     
-    # # Get object properties
-    # print("  Objects :", end='')
-    # t0 = time.time()
-    # obj_mask_3D, obj_labels_3D, obj_props = get_object_properties(
-    #     stack_norm, mtx_mask_3D, mtx_EDM_3D)
-    # t1 = time.time()
-    # print(f" {(t1-t0):<5.2f}s") 
+    # Get object properties
+    print("  Objects :", end='')
+    t0 = time.time()
+    obj_mask_3D, obj_labels_3D, obj_props = get_object_properties(
+        stack_norm, mtx_mask_3D, mtx_EDM_3D)
+    t1 = time.time()
+    print(f" {(t1-t0):<5.2f}s") 
     
-    # # Print variables
-    # print( "  ---------")
-    # print(f"  zSlices    : {z0}-{z1}")
-    # print(f"  mtx_thresh : {int(mtx_thresh):<5d}")
-    # print(f"  rod_thresh : {int(rod_thresh):<5d}")
+    # Print variables
+    print( "  ---------")
+    print(f"  zSlices    : {z0}-{z1}")
+    print(f"  mtx_thresh : {int(mtx_thresh):<5d}")
+    print(f"  rod_thresh : {int(rod_thresh):<5d}")
     # if stack_data:
     #     print(f"  rscaleF    : {rscale_factor:<.3f}")
         
@@ -292,9 +292,9 @@ def process_stack(stack_path, stack_data):
         "mtx_mask_3D"   : mtx_mask_3D,
         "rod_EDM_3D"    : rod_EDM_3D,
         "mtx_EDM_3D"    : mtx_EDM_3D,
-        # "obj_mask_3D"   : obj_mask_3D,
-        # "obj_labels_3D" : obj_labels_3D,
-        # "obj_props"     : obj_props,
+        "obj_mask_3D"   : obj_mask_3D,
+        "obj_labels_3D" : obj_labels_3D,
+        "obj_props"     : obj_props,
         })
 
 #%% Execute -------------------------------------------------------------------
@@ -401,7 +401,7 @@ def get_transform_matrix(data_ref, data_reg):
     # Compute transformation matrix
     transform_matrix = affine_registration(coords_ref, coords_reg)
     
-    return transform_matrix
+    return transform_matrix, labels_3D_ref, labels_3D_reg
        
 #%%
        
@@ -432,83 +432,127 @@ def get_transform_matrix(data_ref, data_reg):
 
 #%% Display (report) ----------------------------------------------------------
 
-from skimage.morphology import binary_erosion
-from skimage.filters import gaussian
+# -----------------------------------------------------------------------------
+
+# import napari
+# viewer = napari.Viewer()
+
+# idx = 1
+# stack_norm = stack_data[idx]["stack_rsize"]
+# obj_labels_3D = stack_data[idx]["obj_labels_3D"]
+# viewer.add_image(stack_norm)
+# viewer.add_labels(obj_labels_3D)
+
+# viewer.dims.ndisplay = 3
+# viewer.camera.zoom = 1.75
+# viewer.camera.perspective = 30
+# viewer.camera.angles = (0, 0, -45)
+
+# stack_reg_data = [stack_data[0]["stack_rsize"]]
+# for i in range(1, len(stack_data)):
+#     transform_matrix = get_transform_matrix(stack_data[0], stack_data[i])
+#     stack_reg_data.append(
+#         affine_transform(stack_data[i]["stack_rsize"], transform_matrix)
+#         )
+
+# -----------------------------------------------------------------------------
+
+transform_matrix, labels_3D_ref, labels_3D_reg = get_transform_matrix(
+    stack_data[0], stack_data[1])
 
 import napari
 viewer = napari.Viewer()
+viewer.add_labels(labels_3D_ref)
+viewer.add_labels(labels_3D_reg)
 
-for data in stack_data:    
-    mtx_mask_3D = data["mtx_mask_3D"]
-    mtx_mask_3D = mtx_mask_3D ^ binary_erosion(mtx_mask_3D)
-    mtx_mask_3D = mtx_mask_3D.astype("uint8") * 255
-    mtx_mask_3D = gaussian(mtx_mask_3D, sigma=2)
-    viewer.add_image(
-        mtx_mask_3D,
-        rendering="attenuated_mip",
-        attenuation=0.5,
-        blending="additive",
-        opacity=0.2)
+# idx = 1
+
+# if idx == 0:
+#     stack_norm = stack_data[idx]["stack_rsize"]
+#     viewer.add_image(stack_norm)
+#     viewer.add_labels(labels_3D_ref)
+    
+# if idx == 1:
+#     stack_norm = stack_data[idx]["stack_rsize"]
+#     viewer.add_image(stack_norm)
+#     viewer.add_labels(labels_3D_reg)
+    
+# viewer.dims.ndisplay = 3
+# viewer.camera.zoom = 1.75
+# viewer.camera.perspective = 30
+# viewer.camera.angles = (0, 0, -45)
+
 
 #%% Save ----------------------------------------------------------------------
 
-# for data in stack_data:
+for data in stack_data:
     
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rsize.tif"),
-    #     data["stack_rsize"].astype("float32"), check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
-    #     data["stack_roll"].astype("float32"), check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_norm.tif"),
-    #     data["stack_norm"].astype("float32"), check_contrast=False,
-    #     )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rsize.tif"),
+        data["stack_rsize"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
+        data["stack_roll"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_norm.tif"),
+        data["stack_norm"].astype("float32"), check_contrast=False,
+        )
     
     # -------------------------------------------------------------------------
     
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_avg_proj.tif"),
-    #     data["avg_proj"].astype("float32"), check_contrast=False,
-    #     )    
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rod_mask.tif"),
-    #     data["rod_mask"].astype("uint8") * 255, check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_mtx_mask.tif"),
-    #     data["mtx_mask"].astype("uint8") * 255, check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rod_EDM.tif"),
-    #     data["rod_EDM"].astype("float32"), check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_mtx_EDM.tif"),
-    #     data["mtx_EDM"].astype("float32"), check_contrast=False,
-    #     )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_avg_proj.tif"),
+        data["avg_proj"].astype("float32"), check_contrast=False,
+        )    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_mask.tif"),
+        data["rod_mask"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_mask.tif"),
+        data["mtx_mask"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_EDM.tif"),
+        data["rod_EDM"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_EDM.tif"),
+        data["mtx_EDM"].astype("float32"), check_contrast=False,
+        )
     
     # -------------------------------------------------------------------------
    
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_avg_proj_3D.tif"),
-    #     data["avg_proj_3D"].astype("float32"), check_contrast=False,
-    #     )    
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rod_mask_3D.tif"),
-    #     data["rod_mask_3D"].astype("uint8") * 255, check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_mtx_mask_3D.tif"),
-    #     data["mtx_mask_3D"].astype("uint8") * 255, check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rod_EDM_3D.tif"),
-    #     data["rod_EDM_3D"].astype("float32"), check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_mtx_EDM_3D.tif"),
-    #     data["mtx_EDM_3D"].astype("float32"), check_contrast=False,
-    #     )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_avg_proj_3D.tif"),
+        data["avg_proj_3D"].astype("float32"), check_contrast=False,
+        )    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_mask_3D.tif"),
+        data["rod_mask_3D"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_mask_3D.tif"),
+        data["mtx_mask_3D"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_EDM_3D.tif"),
+        data["rod_EDM_3D"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_EDM_3D.tif"),
+        data["mtx_EDM_3D"].astype("float32"), check_contrast=False,
+        )
+    
+    # -------------------------------------------------------------------------
+    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_obj_mask_3D.tif"),
+        data["obj_mask_3D"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_obj_labels_3D.tif"),
+        data["obj_labels_3D"].astype("uint16"), check_contrast=False,
+        )
