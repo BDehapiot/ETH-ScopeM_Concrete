@@ -495,11 +495,11 @@ for outlier in outliers:
     mtch_labels_3D_ref[mtch_labels_3D_ref == mtchs[outlier, 0] + 1] = 0
     mtch_labels_3D_reg[mtch_labels_3D_reg == mtchs[outlier, 0] + 1] = 0
     
-# # Display
-# import napari
-# viewer = napari.Viewer()
-# viewer.add_labels(mtch_labels_3D_ref)
-# viewer.add_labels(mtch_labels_3D_reg)
+# Display
+import napari
+viewer = napari.Viewer()
+viewer.add_labels(mtch_labels_3D_ref)
+viewer.add_labels(mtch_labels_3D_reg)
 
 # -----------------------------------------------------------------------------
 
