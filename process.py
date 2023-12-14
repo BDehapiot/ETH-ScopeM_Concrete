@@ -270,8 +270,8 @@ def process_stack(stack_path, stack_data):
     print(f"  zSlices    : {z0}-{z1}")
     print(f"  mtx_thresh : {int(mtx_thresh):<5d}")
     print(f"  rod_thresh : {int(rod_thresh):<5d}")
-    # if stack_data:
-    #     print(f"  rscaleF    : {rscale_factor:<.3f}")
+    if stack_data:
+        print(f"  rscaleF    : {rscale_factor:<.3f}")
         
     # Outputs
     stack_data.append({
@@ -401,34 +401,34 @@ def get_transform_matrix(data_ref, data_reg):
     # Compute transformation matrix
     transform_matrix = affine_registration(coords_ref, coords_reg)
     
-    return transform_matrix, labels_3D_ref, labels_3D_reg
+    return transform_matrix
        
 #%%
        
-# stack_reg_data = [stack_data[0]["stack_rsize"]]
-# for i in range(1, len(stack_data)):
-#     transform_matrix = get_transform_matrix(stack_data[0], stack_data[i])
-#     stack_reg_data.append(
-#         affine_transform(stack_data[i]["stack_rsize"], transform_matrix)
-#         )
+stack_reg_data = [stack_data[0]["stack_rsize"]]
+for i in range(1, len(stack_data)):
+    transform_matrix = get_transform_matrix(stack_data[0], stack_data[i])
+    stack_reg_data.append(
+        affine_transform(stack_data[i]["stack_rsize"], transform_matrix)
+        )
 
-# min_z = np.min([stack.shape[0] for stack in stack_reg_data])
-# min_y = np.min([stack.shape[1] for stack in stack_reg_data]) 
-# min_x = np.min([stack.shape[2] for stack in stack_reg_data])
+min_z = np.min([stack.shape[0] for stack in stack_reg_data])
+min_y = np.min([stack.shape[1] for stack in stack_reg_data]) 
+min_x = np.min([stack.shape[2] for stack in stack_reg_data])
 
-# for i in range(len(stack_reg_data)):
-#     stack_reg_data[i] = stack_reg_data[i][:min_z, :min_y, :min_x]
-# stack_reg = np.stack(stack_reg_data)    
+for i in range(len(stack_reg_data)):
+    stack_reg_data[i] = stack_reg_data[i][:min_z, :min_y, :min_x]
+stack_reg = np.stack(stack_reg_data)    
 
-# io.imsave(
-#     Path(data_path, "stack_reg.tif"),
-#     stack_reg.astype("float32"),
-#     check_contrast=False,
-#     imagej=True,
-#     metadata={'axes': 'TZYX'},
-#     photometric='minisblack',
-#     planarconfig='contig',
-#     )
+io.imsave(
+    Path(data_path, "stack_reg.tif"),
+    stack_reg.astype("float32"),
+    check_contrast=False,
+    imagej=True,
+    metadata={'axes': 'TZYX'},
+    photometric='minisblack',
+    planarconfig='contig',
+    )
 
 #%% Display (report) ----------------------------------------------------------
 
@@ -457,13 +457,13 @@ def get_transform_matrix(data_ref, data_reg):
 
 # -----------------------------------------------------------------------------
 
-transform_matrix, labels_3D_ref, labels_3D_reg = get_transform_matrix(
-    stack_data[0], stack_data[1])
+# transform_matrix, labels_3D_ref, labels_3D_reg = get_transform_matrix(
+#     stack_data[0], stack_data[1])
 
-import napari
-viewer = napari.Viewer()
-viewer.add_labels(labels_3D_ref)
-viewer.add_labels(labels_3D_reg)
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_labels(labels_3D_ref)
+# viewer.add_labels(labels_3D_reg)
 
 # idx = 1
 
