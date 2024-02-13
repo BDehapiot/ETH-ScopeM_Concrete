@@ -155,7 +155,7 @@ def process_stacks(
     
     # Initialize
     print(f"\n{stack_path.stem}")
-    print( "=========================")
+    print("=====================")
     
     # Get img paths
     img_paths = []
@@ -253,7 +253,7 @@ def process_stacks(
     print(f" {(t1-t0):<5.2f}s") 
     
     # Print variables
-    print( "  -----------------------")
+    print( "  -------------------")
     print(f"  zSlices    : {z0}-{z1}")
     print(f"  mtx_thresh : {int(mtx_thresh):<5d}")
     print(f"  rod_thresh : {int(rod_thresh):<5d}")
@@ -387,22 +387,29 @@ def register_stacks(stack_data):
         return transform_matrix
     
     # Execute -----------------------------------------------------------------
-    
-    transform_matrices = []
-    stack_reg_data = [stack_data[0]["stack_rsize"]]
+
+    # Register data
+    print("\nRegistration")
+    print("=============================")
+    print(f"- {stack_data[0]['stack_path'].name} : 00.00s")
+    stack_rsize_reg = [stack_data[0]["stack_rsize"]]
     for i in range(1, len(stack_data)):
+        print(f"- {stack_data[i]['stack_path'].name} :", end='')
+        t0 = time.time()
         transform_matrix = get_transform_matrix(stack_data[0], stack_data[i])
-        transform_matrices.append(transform_matrix)
-        stack_reg_data.append(
+        stack_rsize_reg.append(
             affine_transform(stack_data[i]["stack_rsize"], transform_matrix)
             )
+        t1 = time.time()
+        print(f" {(t1-t0):<5.2f}s") 
     
-    min_z = np.min([stack.shape[0] for stack in stack_reg_data])
-    min_y = np.min([stack.shape[1] for stack in stack_reg_data]) 
-    min_x = np.min([stack.shape[2] for stack in stack_reg_data])
+    min_z = np.min([stack.shape[0] for stack in stack_rsize_reg])
+    min_y = np.min([stack.shape[1] for stack in stack_rsize_reg]) 
+    min_x = np.min([stack.shape[2] for stack in stack_rsize_reg])
 
-    for i in range(len(stack_reg_data)):
-        stack_reg_data[i] = stack_reg_data[i][:min_z, :min_y, :min_x]
-    stack_reg = np.stack(stack_reg_data)    
+    # Crop data
+    for i in range(len(stack_rsize_reg)):
+        stack_rsize_reg[i] = stack_rsize_reg[i][:min_z, :min_y, :min_x]
+    stack_rsize_reg = np.stack(stack_rsize_reg)    
     
-    return stack_reg, transform_matrices
+    return stack_rsize_reg
