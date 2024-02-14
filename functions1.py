@@ -174,7 +174,7 @@ def process_stacks(
     stack_rsize = downscale_local_mean(stack_rsize, (rsize_factor, 1, 1))
     t1 = time.time()
     print(f" {(t1-t0):<5.2f}s")
-        
+    
     # Select slices
     z_mean = np.mean(stack_rsize, axis=(1,2)) 
     z_mean_diff = np.gradient(z_mean)
@@ -412,5 +412,5 @@ def register_stacks(stack_data):
     for i in range(len(stack_reg)):
         stack_reg[i] = stack_reg[i][:min_z, :min_y, :min_x]
     stack_reg = np.stack(stack_reg)  
-       
+   
     return stack_reg
