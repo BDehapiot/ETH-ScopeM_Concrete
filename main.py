@@ -14,10 +14,10 @@ rod_thresh_coeff = 1.0 # adjust rod threshold
 
 data_path = "D:/local_Concrete/data/DIA"
 exp_name = (
-    "D1_ICONX_DoS"
+    # "D1_ICONX_DoS"
     # "D11_ICONX_DoS"
     # "D12_ICONX_corrosion"
-    # "H9_ICONX_DoS"
+    "H9_ICONX_DoS"
     )
 
 # List stacks 
@@ -43,12 +43,12 @@ for stack_path in stack_paths:
             )
 
 # Register stacks     
-stack_reg = register_stacks(stack_data)
+hstack_reg = register_stacks(stack_data)
 
 # Save 
 io.imsave(
-    Path(data_path, f"{exp_name}_stack_reg.tif"),
-    stack_reg.astype("float32"),
+    Path(data_path, f"{exp_name}_hstack_reg.tif"),
+    hstack_reg.astype("float32"),
     check_contrast=False,
     imagej=True,
     metadata={'axes': 'TZYX'},

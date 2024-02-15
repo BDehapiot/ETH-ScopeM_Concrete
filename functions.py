@@ -397,20 +397,20 @@ def register_stacks(stack_data):
     print("\nRegistration")
     print("=====================")
     t0 = time.time()
-    stack_reg = Parallel(n_jobs=-1)(
+    hstack_reg = Parallel(n_jobs=-1)(
             delayed(get_transformed_stack)(stack_data[0], stack_data[i]) 
             for i in range(1, len(stack_data))
             )
     t1 = time.time()
     print(f"  {(t1-t0):<5.2f}s") 
-    stack_reg.insert(0, stack_data[0]["stack_rsize"])
+    hstack_reg.insert(0, stack_data[0]["stack_rsize"])
     
     # Crop data
-    min_z = np.min([stack.shape[0] for stack in stack_reg])
-    min_y = np.min([stack.shape[1] for stack in stack_reg]) 
-    min_x = np.min([stack.shape[2] for stack in stack_reg])
-    for i in range(len(stack_reg)):
-        stack_reg[i] = stack_reg[i][:min_z, :min_y, :min_x]
-    stack_reg = np.stack(stack_reg)  
+    min_z = np.min([stack.shape[0] for stack in hstack_reg])
+    min_y = np.min([stack.shape[1] for stack in hstack_reg]) 
+    min_x = np.min([stack.shape[2] for stack in hstack_reg])
+    for i in range(len(hstack_reg)):
+        hstack_reg[i] = hstack_reg[i][:min_z, :min_y, :min_x]
+    hstack_reg = np.stack(hstack_reg)  
        
-    return stack_reg
+    return hstack_reg
