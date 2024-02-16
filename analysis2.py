@@ -132,65 +132,130 @@ import matplotlib.pyplot as plt
 
 # Get edm (outer surface)
 edm = distance_transform_edt(binary_fill_holes(avg_mask))
-edm = np.tile(edm[np.newaxis, :, :], (obj_mask.shape[0], 1, 1))
+edm[avg_mask == 0] = 0
+edm_tiles = np.tile(edm[np.newaxis, :, :], (obj_mask.shape[0], 1, 1))
 
 # Get object properties
 obj_labels = label(obj_mask)
 obj_props = {"label" : [], "idx" : [], "area" : [], "edm" : []}
-props = regionprops(obj_labels, intensity_image=edm)
+props = regionprops(obj_labels, intensity_image=edm_tiles)
 for prop in props:
     obj_props["label"].append(prop.label)
     obj_props["idx"  ].append(prop.coords)
     obj_props["area" ].append(prop.area)
     obj_props["edm"  ].append(prop.intensity_mean)
-        
-#%%
+    
+#%% 
 
+from scipy.stats import linregress
 from sklearn.mixture import GaussianMixture
 
 # -----------------------------------------------------------------------------
 
-idx = 1
+idx = 0
 stack_norm = hstack_norm[idx,...]
-values = stack_norm[obj_mask == 1]
-   
-# -----------------------------------------------------------------------------
-
-values = values.reshape(-1, 1)
-gmm1 = GaussianMixture(n_components=1, random_state=42).fit(values)
-gmm2 = GaussianMixture(n_components=2, random_state=42).fit(values)
-aic1, bic1 = gmm1.aic(values), gmm1.bic(values)
-aic2, bic2 = gmm2.aic(values), gmm2.bic(values)
-
-# Decide on the number of components
-if   min(aic1, aic2) == aic1 and min(bic1, bic2) == bic1: print("1 Gaussian" )
-elif min(aic1, aic2) == aic2 and min(bic1, bic2) == bic2: print("2 Gaussians")
-else : print("Ambiguous")
 
 # -----------------------------------------------------------------------------
 
-# Plotting
-fig, ax = plt.subplots()
-x = np.linspace(values.min(), values.max(), 1000).reshape(-1, 1)
-logprob = gmm2.score_samples(x)
-responsibilities = gmm2.predict_proba(x)
-pdf = np.exp(logprob)
-pdf_individual = responsibilities * pdf[:, np.newaxis]
-
-# Plot the histogram
-ax.hist(values, bins=100, density=True, alpha=0.5, color='gray', label='Histogram of data')
-
-# Plot each Gaussian component
-for i in range(2):
-    ax.plot(x, pdf_individual[:, i], label=f'Gaussian {i+1}')
-
-ax.plot(x, pdf, label='GMM')
-
+dStep = 12
+dMax = np.max(edm)
+dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
+dLow = []
+for i in range(1, len(dRange) - 1):
+    
+    # Get distance mask
+    d0 = dRange[i - 1]
+    d1 = dRange[i + 1]
+    dMask = (edm_tiles > d0) & (edm_tiles <= d1)
+    dMask[obj_mask == 0] = 0  
+    
+    # Get distance mask
+    val = stack_norm[dMask == 1]
+    dLow.append(np.quantile(val, 0.001)) # Parameter
+ 
 # -----------------------------------------------------------------------------
+     
+# plt.plot(dLow)
+slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
+x2 = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
+y2 = slope * x2 + intercept
+plt.plot(x2, y2)
+
+# Creating a lookup table
+lookup_table = dict(zip(original_values, new_values))
+
+# Applying the lookup table to the image
+mapped_image = np.vectorize(lookup_table.get)(image)
 
 # import napari
 # viewer = napari.Viewer()
-# viewer.add_image(hstack_norm[idx,...])
+# viewer.add_image(stack_norm)
+    
+#%%
+
+# from sklearn.mixture import GaussianMixture
+
+# # -----------------------------------------------------------------------------
+
+# idx = 3
+# stack_norm = hstack_norm[idx,...]
+
+# # -----------------------------------------------------------------------------
+
+# # Get object mask (averaged)
+# print("Gaussian mixture:", end='')
+# t0 = time.time()
+
+# edm_step = 8
+# edm_max = np.max(edm)
+# edm_range = np.arange(0, edm_max + 1, edm_max / (edm_step + 1))
+
+# gm_data = {
+#     "resp"   : [],
+#     "pdf"    : [],
+#     "pdfs"   : [],
+#     "thresh" : [],
+#     }
+
+# for i in range(1, len(edm_range) - 1):
+    
+#     # Get edm mask
+#     d0 = edm_range[i - 1]
+#     d1 = edm_range[i + 1]
+#     edm_mask = (edm_tiles > d0) & (edm_tiles <= d1)
+#     edm_mask[obj_mask == 0] = 0
+    
+#     # Gaussian mixture
+#     values = stack_norm[edm_mask == 1].reshape(-1, 1)
+#     gmm = GaussianMixture(n_components=2, random_state=42).fit(values)
+#     x = np.linspace(values.min(), values.max(), 1000).reshape(-1, 1)
+#     resp = gmm.predict_proba(x)
+#     logprob = gmm.score_samples(x)
+#     pdf = np.exp(logprob)
+#     pdfs = resp * pdf[:, np.newaxis]
+#     thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))]
+    
+#     # Append
+#     gm_data["resp"  ].append(resp)
+#     gm_data["pdf"   ].append(pdf) 
+#     gm_data["pdfs"  ].append(pdfs) 
+#     gm_data["thresh"].append(thresh) 
+
+# t1 = time.time()
+# print(f" {(t1-t0):<5.2f}s")
+
+# # -----------------------------------------------------------------------------
+
+# nPlots = len(gm_data["pdf"])
+# fig, axs = plt.subplots(nPlots, 1, figsize=(6, 12))
+# for i in range(nPlots):
+#     axs[i].plot(gm_data["pdf"][i])
+
+# # -----------------------------------------------------------------------------
+
+# # import napari
+# # viewer = napari.Viewer()
+# # viewer.add_image(stack_norm)
 
 #%%
 
