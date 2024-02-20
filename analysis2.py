@@ -114,7 +114,7 @@ print(f" {(t1-t0):<5.2f}s")
 print("Object mask:", end='')
 t0 = time.time()
 norm_avg = np.min(hstack_norm, axis=0)
-obj_mask = (norm_avg > 0.8) & (norm_avg > 0) # Parameter
+obj_mask = (norm_avg > 0.7) & (norm_avg > 0) # Parameter
 obj_mask = np.invert(obj_mask)
 obj_mask[norm_avg == 0] = 0
 obj_mask = remove_small_objects(
@@ -218,134 +218,8 @@ viewer.add_image(lqud_mask, blending="additive", opacity=0.2, colormap="bop blue
 
 #%% 
 
-# from scipy.stats import linregress
-# from sklearn.mixture import GaussianMixture
 
-# # -----------------------------------------------------------------------------
 
-# idx = 3
-# stack_norm = hstack_norm[idx,...]
-
-# # -----------------------------------------------------------------------------
-
-# dStep = 12
-# dMax = np.max(edm)
-# dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
-# dLow = []
-# for i in range(1, len(dRange) - 1):
-    
-#     # Get distance mask
-#     d0 = dRange[i - 1]
-#     d1 = dRange[i + 1]
-#     dMask = (edm_tiles > d0) & (edm_tiles <= d1)
-#     dMask[obj_mask == 0] = 0  
-    
-#     # Get distance mask
-#     val = stack_norm[dMask == 1]
-#     dLow.append(np.quantile(val, 0.001)) # Parameter
- 
-# # -----------------------------------------------------------------------------
-     
-# # plt.plot(dLow)
-# slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
-# x2 = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
-# y2 = slope * x2 + intercept
-# plt.plot(x2, y2)
-
-# # Creating a lookup table
-# lookup_table = dict(zip(x2, y2))
-
-# # Applying the lookup table to the image
-# mapped_image = np.vectorize(lookup_table.get)(edm.astype("int"))
-# mapped_image = np.array(mapped_image, dtype=float)
-
-# test = stack_norm / mapped_image[np.newaxis,...]
-# test[obj_mask == 0] = 0
-
-# import napari
-# viewer = napari.Viewer()
-# viewer.add_image(test)
-
-# # -----------------------------------------------------------------------------
-
-# # Gaussian mixture
-# values = stack_norm[obj_mask == 1].reshape(-1, 1)
-# gmm = GaussianMixture(n_components=2, random_state=42).fit(values)
-# x = np.linspace(values.min(), values.max(), 1000).reshape(-1, 1)
-# resp = gmm.predict_proba(x)
-# logprob = gmm.score_samples(x)
-# pdf = np.exp(logprob)
-# pdfs = resp * pdf[:, np.newaxis]
-# thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))]
-
-# plt.plot(pdf)
-
-    
-#%%
-
-# from sklearn.mixture import GaussianMixture
-
-# # -----------------------------------------------------------------------------
-
-# idx = 3
-# stack_norm = hstack_norm[idx,...]
-
-# # -----------------------------------------------------------------------------
-
-# # Get object mask (averaged)
-# print("Gaussian mixture:", end='')
-# t0 = time.time()
-
-# edm_step = 8
-# edm_max = np.max(edm)
-# edm_range = np.arange(0, edm_max + 1, edm_max / (edm_step + 1))
-
-# gm_data = {
-#     "resp"   : [],
-#     "pdf"    : [],
-#     "pdfs"   : [],
-#     "thresh" : [],
-#     }
-
-# for i in range(1, len(edm_range) - 1):
-    
-#     # Get edm mask
-#     d0 = edm_range[i - 1]
-#     d1 = edm_range[i + 1]
-#     edm_mask = (edm_tiles > d0) & (edm_tiles <= d1)
-#     edm_mask[obj_mask == 0] = 0
-    
-#     # Gaussian mixture
-#     values = stack_norm[edm_mask == 1].reshape(-1, 1)
-#     gmm = GaussianMixture(n_components=2, random_state=42).fit(values)
-#     x = np.linspace(values.min(), values.max(), 1000).reshape(-1, 1)
-#     resp = gmm.predict_proba(x)
-#     logprob = gmm.score_samples(x)
-#     pdf = np.exp(logprob)
-#     pdfs = resp * pdf[:, np.newaxis]
-#     thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))]
-    
-#     # Append
-#     gm_data["resp"  ].append(resp)
-#     gm_data["pdf"   ].append(pdf) 
-#     gm_data["pdfs"  ].append(pdfs) 
-#     gm_data["thresh"].append(thresh) 
-
-# t1 = time.time()
-# print(f" {(t1-t0):<5.2f}s")
-
-# # -----------------------------------------------------------------------------
-
-# nPlots = len(gm_data["pdf"])
-# fig, axs = plt.subplots(nPlots, 1, figsize=(6, 12))
-# for i in range(nPlots):
-#     axs[i].plot(gm_data["pdf"][i])
-
-# # -----------------------------------------------------------------------------
-
-# # import napari
-# # viewer = napari.Viewer()
-# # viewer.add_image(stack_norm)
 
 #%%
 
