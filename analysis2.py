@@ -152,9 +152,16 @@ from sklearn.mixture import GaussianMixture
 
 # -----------------------------------------------------------------------------
 
+# Segment liquid component
+
+print("???:", end='')
+t0 = time.time()
+
 dStep = 12
 dMax = np.max(edm)
 dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
+hstack_nnorm, void_mask, lqud_mask = [], [], []
+
 for stack_norm in hstack_norm:
     
     dLow = []
@@ -170,84 +177,108 @@ for stack_norm in hstack_norm:
         val = stack_norm[dMask == 1]
         dLow.append(np.quantile(val, 0.001)) # Parameter
         
-        # Fit (linear)
-        slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
-        x = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
-        y = slope * x + intercept
-        
-        # Adjust 
-        lookup_table = dict(zip(x, y))
-        mapped_image = np.vectorize(lookup_table.get)(edm.astype("int"))
-        mapped_image = np.array(mapped_image, dtype=float)
-        stack_nnorm = stack_norm / mapped_image[np.newaxis,...]
-        stack_nnorm[obj_mask == 0] = 0
+    # Fit (linear)
+    slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
+    x = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
+    y = slope * x + intercept
     
+    # Normalize 
+    lookup_table = dict(zip(x, y))
+    nnorm = np.vectorize(lookup_table.get)(edm.astype("int"))
+    nnorm = np.array(nnorm, dtype=float)
+    stack_nnorm = stack_norm / nnorm[np.newaxis,...]
+    stack_nnorm[obj_mask == 0] = 0
     
+    # Gaussian mixture
+    val = stack_nnorm[obj_mask == 1].reshape(-1, 1)
+    gmm = GaussianMixture(n_components=2, random_state=42).fit(val)
+    x = np.linspace(val.min(), val.max(), 1000).reshape(-1, 1)
+    resp = gmm.predict_proba(x)
+    logprob = gmm.score_samples(x)
+    pdf = np.exp(logprob)
+    pdfs = resp * pdf[:, np.newaxis]
+    thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))] * 1.1
     
-
-#%% 
-
-from scipy.stats import linregress
-from sklearn.mixture import GaussianMixture
-
-# -----------------------------------------------------------------------------
-
-idx = 3
-stack_norm = hstack_norm[idx,...]
-
-# -----------------------------------------------------------------------------
-
-dStep = 12
-dMax = np.max(edm)
-dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
-dLow = []
-for i in range(1, len(dRange) - 1):
+    #
+    hstack_nnorm.append(stack_nnorm)
+    void_mask.append((stack_nnorm < thresh) & (stack_nnorm > 0))
+    lqud_mask.append((stack_nnorm > thresh))
     
-    # Get distance mask
-    d0 = dRange[i - 1]
-    d1 = dRange[i + 1]
-    dMask = (edm_tiles > d0) & (edm_tiles <= d1)
-    dMask[obj_mask == 0] = 0  
-    
-    # Get distance mask
-    val = stack_norm[dMask == 1]
-    dLow.append(np.quantile(val, 0.001)) # Parameter
- 
-# -----------------------------------------------------------------------------
-     
-# plt.plot(dLow)
-slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
-x2 = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
-y2 = slope * x2 + intercept
-plt.plot(x2, y2)
-
-# Creating a lookup table
-lookup_table = dict(zip(x2, y2))
-
-# Applying the lookup table to the image
-mapped_image = np.vectorize(lookup_table.get)(edm.astype("int"))
-mapped_image = np.array(mapped_image, dtype=float)
-
-test = stack_norm / mapped_image[np.newaxis,...]
-test[obj_mask == 0] = 0
+t1 = time.time()
+print(f" {(t1-t0):<5.2f}s")
+hstack_nnorm = np.stack(hstack_nnorm)
+void_mask = np.stack(void_mask)
+lqud_mask = np.stack(lqud_mask) 
 
 import napari
 viewer = napari.Viewer()
-viewer.add_image(test)
+viewer.add_image(hstack_nnorm)
+viewer.add_image(void_mask, blending="additive", opacity=0.2, colormap="bop orange")
+viewer.add_image(lqud_mask, blending="additive", opacity=0.2, colormap="bop blue"  )
 
-# -----------------------------------------------------------------------------
+#%% 
 
-# Gaussian mixture
-values = stack_norm[obj_mask == 1].reshape(-1, 1)
-gmm = GaussianMixture(n_components=2, random_state=42).fit(values)
-x = np.linspace(values.min(), values.max(), 1000).reshape(-1, 1)
-resp = gmm.predict_proba(x)
-logprob = gmm.score_samples(x)
-pdf = np.exp(logprob)
-pdfs = resp * pdf[:, np.newaxis]
-thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))]
+# from scipy.stats import linregress
+# from sklearn.mixture import GaussianMixture
 
-plt.plot(pdf)
+# # -----------------------------------------------------------------------------
+
+# idx = 3
+# stack_norm = hstack_norm[idx,...]
+
+# # -----------------------------------------------------------------------------
+
+# dStep = 12
+# dMax = np.max(edm)
+# dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
+# dLow = []
+# for i in range(1, len(dRange) - 1):
+    
+#     # Get distance mask
+#     d0 = dRange[i - 1]
+#     d1 = dRange[i + 1]
+#     dMask = (edm_tiles > d0) & (edm_tiles <= d1)
+#     dMask[obj_mask == 0] = 0  
+    
+#     # Get distance mask
+#     val = stack_norm[dMask == 1]
+#     dLow.append(np.quantile(val, 0.001)) # Parameter
+ 
+# # -----------------------------------------------------------------------------
+     
+# # plt.plot(dLow)
+# slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
+# x2 = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
+# y2 = slope * x2 + intercept
+# plt.plot(x2, y2)
+
+# # Creating a lookup table
+# lookup_table = dict(zip(x2, y2))
+
+# # Applying the lookup table to the image
+# mapped_image = np.vectorize(lookup_table.get)(edm.astype("int"))
+# mapped_image = np.array(mapped_image, dtype=float)
+
+# test = stack_norm / mapped_image[np.newaxis,...]
+# test[obj_mask == 0] = 0
+
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(test)
+
+# # -----------------------------------------------------------------------------
+
+# # Gaussian mixture
+# values = stack_norm[obj_mask == 1].reshape(-1, 1)
+# gmm = GaussianMixture(n_components=2, random_state=42).fit(values)
+# x = np.linspace(values.min(), values.max(), 1000).reshape(-1, 1)
+# resp = gmm.predict_proba(x)
+# logprob = gmm.score_samples(x)
+# pdf = np.exp(logprob)
+# pdfs = resp * pdf[:, np.newaxis]
+# thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))]
+
+# plt.plot(pdf)
 
     
 #%%
