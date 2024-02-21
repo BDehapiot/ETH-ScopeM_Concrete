@@ -27,10 +27,10 @@ from sklearn.mixture import GaussianMixture
 
 data_path = "D:/local_Concrete/data/DIA"
 exp_name = (
-    # "D1_ICONX_DoS"
+    "D1_ICONX_DoS"
     # "D11_ICONX_DoS"
     # "D12_ICONX_corrosion"
-    "H9_ICONX_DoS"
+    # "H9_ICONX_DoS"
     )
 
 rsize_factor = 4 # Image size reduction factor
@@ -102,7 +102,7 @@ print(f" {(t1-t0):<5.2f}s")
 # -----------------------------------------------------------------------------
 
 # Get normalized stacks
-print("Norm:", end='')
+print("Normalize #1:", end='')
 t0 = time.time()
 hstack_norm = []
 for i, stack in enumerate(hstack_roll):
@@ -129,32 +129,107 @@ obj_mask = remove_small_objects(
 t1 = time.time()
 print(f" {(t1-t0):<5.2f}s")
 
-#%%
+# -----------------------------------------------------------------------------
 
+# Filter object mask
+print("Filter object mask:", end='')
 tmp_mask = binary_fill_holes(avg_mask)
 tmp_mask = binary_erosion(tmp_mask)
 tmp_mask = np.invert(tmp_mask)
 tmp_mask = np.tile(tmp_mask[np.newaxis,...], (obj_mask.shape[0], 1, 1))
-
 obj_labels = label(obj_mask)
 props = regionprops(obj_labels, intensity_image=tmp_mask)
 for prop in props:
     if prop.intensity_max > 0:
         obj_labels[obj_labels == prop.label] = 0
+obj_mask_filt = obj_labels > 0
+t1 = time.time()
+print(f" {(t1-t0):<5.2f}s")
 
-test_mask = obj_labels > 0
+# -----------------------------------------------------------------------------
 
-# # Get object properties
-# obj_labels = label(obj_mask)
-# obj_props = {"label" : [], "idx" : [], "area" : [], "edm" : []}
-# props = regionprops(obj_labels, intensity_image=edm_tiles)
-# for prop in props:
-#     obj_props["label"].append(prop.label)
-#     obj_props["idx"  ].append(prop.coords)
-#     obj_props["area" ].append(prop.area)
-#     obj_props["edm"  ].append(prop.intensity_mean)
+print("Normalize #2:", end='')
+t0 = time.time()
+
+# Parameter
+dStep = 12
+
+# Get edm (outer surface)
+edm = distance_transform_edt(binary_fill_holes(avg_mask))
+edm[avg_mask == 0] = 0
+edm = np.tile(edm[np.newaxis, :, :], (obj_mask.shape[0], 1, 1))
+
+# Process
+hstack_nnorm = []
+dMax = np.max(edm)
+dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
+for stack_norm in hstack_norm:
+    
+    dLow = []
+    for i in range(1, len(dRange) - 1):
+        
+        # Get distance mask
+        d0 = dRange[i - 1]
+        d1 = dRange[i + 1]
+        dMask = (edm > d0) & (edm <= d1)
+        dMask[obj_mask == 0] = 0  
+        
+        # Measure low quantile
+        val = stack_norm[dMask == 1]
+        dLow.append(np.quantile(val, 0.001)) # Parameter
+        
+    # Fit (linear)
+    slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
+    x = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
+    y = slope * x + intercept
+    # plt.plot(x, y, 'gray')
+    # plt.plot(dRange[1:-1], dLow, 'k')
+    
+    # Map values and normalize
+    lookup_table = dict(zip(x, y))
+    nnorm = np.vectorize(lookup_table.get)(edm.astype("int"))
+    nnorm = np.array(nnorm, dtype=float)
+    stack_nnorm = stack_norm / nnorm[np.newaxis,...]
+    # stack_nnorm[obj_mask == 0] = 0
+    
+    # Append
+    hstack_nnorm.append(stack_nnorm.squeeze())
+hstack_nnorm = np.stack(hstack_nnorm)
+
+t1 = time.time()
+print(f" {(t1-t0):<5.2f}s")
+
+# -----------------------------------------------------------------------------
+
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(hstack_norm)
+# viewer.add_image(obj_outl, blending="additive")
+
+#%%
+
+val = []
+for stack_nnorm in hstack_nnorm:
+    val.append(stack_nnorm[obj_mask == 1].reshape(-1, 1))
+val = np.concatenate(val)
+gmm = GaussianMixture(n_components=2, random_state=42).fit(val)
+x = np.linspace(val.min(), val.max(), 1000).reshape(-1, 1)
+resp = gmm.predict_proba(x)
+logprob = gmm.score_samples(x)
+pdf = np.exp(logprob)
+pdfs = resp * pdf[:, np.newaxis]
+thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))] * 1.0
+
+plt.plot(x, pdf)
+
+void_mask = ((hstack_nnorm < thresh) & (hstack_nnorm > 0) & (obj_mask_filt > 0))
+lqud_mask = ((hstack_nnorm > thresh) & (obj_mask_filt > 0))
+
+# -----------------------------------------------------------------------------
 
 import napari
 viewer = napari.Viewer()
-viewer.add_image(obj_mask)
-viewer.add_image(test_mask)
+viewer.add_image(hstack_norm)
+viewer.add_image(hstack_nnorm)
+viewer.add_image(void_mask, blending="additive", opacity=0.5, colormap="bop orange")
+viewer.add_image(lqud_mask, blending="additive", opacity=0.5, colormap="bop blue"  )
