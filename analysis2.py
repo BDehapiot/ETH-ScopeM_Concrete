@@ -5,16 +5,23 @@ import pickle
 import numpy as np
 from skimage import io
 from pathlib import Path
+import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 
 # Skimage 
 from skimage.filters import median
+from skimage.measure import label, regionprops
 from skimage.morphology import (
     disk, binary_dilation, binary_erosion, remove_small_objects
     )
 
 # Scipy
-from scipy.ndimage import shift, binary_fill_holes
+from scipy.stats import linregress
+from scipy.ndimage import shift, binary_fill_holes, distance_transform_edt
+
+# Sklearn
+from sklearn.mixture import GaussianMixture 
+
 
 #%% Inputs --------------------------------------------------------------------
 
@@ -114,7 +121,7 @@ print(f" {(t1-t0):<5.2f}s")
 print("Object mask:", end='')
 t0 = time.time()
 norm_avg = np.min(hstack_norm, axis=0)
-obj_mask = (norm_avg > 0.7) & (norm_avg > 0) # Parameter
+obj_mask = (norm_avg > 0.8) & (norm_avg > 0) # Parameter
 obj_mask = np.invert(obj_mask)
 obj_mask[norm_avg == 0] = 0
 obj_mask = remove_small_objects(
@@ -123,12 +130,6 @@ t1 = time.time()
 print(f" {(t1-t0):<5.2f}s")
 
 #%%
-
-from scipy.ndimage import distance_transform_edt
-from skimage.measure import label, regionprops
-import matplotlib.pyplot as plt
-
-# -----------------------------------------------------------------------------
 
 # Get edm (outer surface)
 edm = distance_transform_edt(binary_fill_holes(avg_mask))
@@ -147,21 +148,14 @@ for prop in props:
 
 #%%
 
-from scipy.stats import linregress
-from sklearn.mixture import GaussianMixture
-
-# -----------------------------------------------------------------------------
-
-# Segment liquid component
+dStep = 12
+dMax = np.max(edm)
+dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
 
 print("???:", end='')
 t0 = time.time()
 
-dStep = 12
-dMax = np.max(edm)
-dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
-hstack_nnorm, void_mask, lqud_mask = [], [], []
-
+hstack_nnorm = []
 for stack_norm in hstack_norm:
     
     dLow = []
@@ -173,7 +167,7 @@ for stack_norm in hstack_norm:
         dMask = (edm_tiles > d0) & (edm_tiles <= d1)
         dMask[obj_mask == 0] = 0  
         
-        # Get distance mask
+        # Measure low quantile
         val = stack_norm[dMask == 1]
         dLow.append(np.quantile(val, 0.001)) # Parameter
         
@@ -181,45 +175,116 @@ for stack_norm in hstack_norm:
     slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
     x = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
     y = slope * x + intercept
+    # plt.plot(x, y, 'gray')
+    # plt.plot(dRange[1:-1], dLow, 'k')
     
-    # Normalize 
+    # Map values and normalize
     lookup_table = dict(zip(x, y))
     nnorm = np.vectorize(lookup_table.get)(edm.astype("int"))
     nnorm = np.array(nnorm, dtype=float)
     stack_nnorm = stack_norm / nnorm[np.newaxis,...]
-    stack_nnorm[obj_mask == 0] = 0
+    # stack_nnorm[obj_mask == 0] = 0
     
-    # Gaussian mixture
-    val = stack_nnorm[obj_mask == 1].reshape(-1, 1)
-    gmm = GaussianMixture(n_components=2, random_state=42).fit(val)
-    x = np.linspace(val.min(), val.max(), 1000).reshape(-1, 1)
-    resp = gmm.predict_proba(x)
-    logprob = gmm.score_samples(x)
-    pdf = np.exp(logprob)
-    pdfs = resp * pdf[:, np.newaxis]
-    thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))] * 1.1
-    
-    #
+    # Append
     hstack_nnorm.append(stack_nnorm)
-    void_mask.append((stack_nnorm < thresh) & (stack_nnorm > 0))
-    lqud_mask.append((stack_nnorm > thresh))
-    
+hstack_nnorm = np.stack(hstack_nnorm)
+
 t1 = time.time()
 print(f" {(t1-t0):<5.2f}s")
-hstack_nnorm = np.stack(hstack_nnorm)
-void_mask = np.stack(void_mask)
-lqud_mask = np.stack(lqud_mask) 
+
+#%%
+
+val = []
+for stack_nnorm in hstack_nnorm:
+    val.append(stack_nnorm[obj_mask == 1].reshape(-1, 1))
+val = np.concatenate(val)
+gmm = GaussianMixture(n_components=2, random_state=42).fit(val)
+x = np.linspace(val.min(), val.max(), 1000).reshape(-1, 1)
+resp = gmm.predict_proba(x)
+logprob = gmm.score_samples(x)
+pdf = np.exp(logprob)
+pdfs = resp * pdf[:, np.newaxis]
+thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))] * 1.0
+
+plt.plot(x, pdf)
+
+void_mask = ((hstack_nnorm < thresh) & (hstack_nnorm > 0))
+lqud_mask = ((hstack_nnorm > thresh) & (obj_mask > 0))
 
 import napari
 viewer = napari.Viewer()
+viewer.add_image(hstack_norm)
 viewer.add_image(hstack_nnorm)
-viewer.add_image(void_mask, blending="additive", opacity=0.2, colormap="bop orange")
-viewer.add_image(lqud_mask, blending="additive", opacity=0.2, colormap="bop blue"  )
-
-#%% 
+viewer.add_image(void_mask, blending="additive", opacity=0.5, colormap="bop orange")
+viewer.add_image(lqud_mask, blending="additive", opacity=0.5, colormap="bop blue"  )
 
 
+#%%
 
+# # Segment liquid component
+
+# print("???:", end='')
+# t0 = time.time()
+
+# dStep = 12
+# dMax = np.max(edm)
+# dRange = np.arange(0, dMax + 1, dMax / (dStep + 1))
+# hstack_nnorm, void_mask, lqud_mask = [], [], []
+
+# for stack_norm in hstack_norm:
+    
+#     dLow = []
+#     for i in range(1, len(dRange) - 1):
+        
+#         # Get distance mask
+#         d0 = dRange[i - 1]
+#         d1 = dRange[i + 1]
+#         dMask = (edm_tiles > d0) & (edm_tiles <= d1)
+#         dMask[obj_mask == 0] = 0  
+        
+#         # Get distance mask
+#         val = stack_norm[dMask == 1]
+#         dLow.append(np.quantile(val, 0.001)) # Parameter
+        
+#     # Fit (linear)
+#     slope, intercept, r_value, p_value, std_err = linregress(dRange[1:-1], dLow)
+#     x = np.linspace(1, int(np.ceil(dMax)), int(np.ceil(dMax)))
+#     y = slope * x + intercept
+    
+#     # Normalize 
+#     lookup_table = dict(zip(x, y))
+#     nnorm = np.vectorize(lookup_table.get)(edm.astype("int"))
+#     nnorm = np.array(nnorm, dtype=float)
+#     stack_nnorm = stack_norm / nnorm[np.newaxis,...]
+#     stack_nnorm[obj_mask == 0] = 0
+    
+#     # Gaussian mixture
+#     val = stack_nnorm[obj_mask == 1].reshape(-1, 1)
+#     gmm = GaussianMixture(n_components=2, random_state=42).fit(val)
+#     x = np.linspace(val.min(), val.max(), 1000).reshape(-1, 1)
+#     resp = gmm.predict_proba(x)
+#     logprob = gmm.score_samples(x)
+#     pdf = np.exp(logprob)
+#     pdfs = resp * pdf[:, np.newaxis]
+#     thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))] * 1.1
+    
+#     #
+#     hstack_nnorm.append(stack_nnorm)
+#     void_mask.append((stack_nnorm < thresh) & (stack_nnorm > 0))
+#     lqud_mask.append((stack_nnorm > thresh))
+    
+# t1 = time.time()
+# print(f" {(t1-t0):<5.2f}s")
+# hstack_nnorm = np.stack(hstack_nnorm)
+# void_mask = np.stack(void_mask)
+# lqud_mask = np.stack(lqud_mask) 
+
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(hstack_norm)
+# viewer.add_image(hstack_nnorm)
+# viewer.add_image(void_mask, blending="additive", opacity=0.5, colormap="bop orange")
+# viewer.add_image(lqud_mask, blending="additive", opacity=0.5, colormap="bop blue"  )
 
 #%%
 
