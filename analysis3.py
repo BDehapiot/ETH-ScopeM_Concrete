@@ -27,8 +27,8 @@ from sklearn.mixture import GaussianMixture
 
 data_path = "D:/local_Concrete/data/DIA"
 exp_name = (
-    "D1_ICONX_DoS"
-    # "D11_ICONX_DoS"
+    # "D1_ICONX_DoS"
+    "D11_ICONX_DoS"
     # "D12_ICONX_corrosion"
     # "H9_ICONX_DoS"
     )
@@ -133,8 +133,8 @@ print(f" {(t1-t0):<5.2f}s")
 
 # Filter object mask
 print("Filter object mask:", end='')
-tmp_mask = binary_fill_holes(avg_mask)
-tmp_mask = binary_erosion(tmp_mask)
+# tmp_mask = binary_fill_holes(avg_mask)
+tmp_mask = binary_erosion(avg_mask)
 tmp_mask = np.invert(tmp_mask)
 tmp_mask = np.tile(tmp_mask[np.newaxis,...], (obj_mask.shape[0], 1, 1))
 obj_labels = label(obj_mask)
@@ -222,6 +222,8 @@ thresh = x[np.argmin(np.abs(resp[:,0] - 0.5))] * 1.0
 
 plt.plot(x, pdf)
 
+# -----------------------------------------------------------------------------
+
 void_mask = ((hstack_nnorm < thresh) & (hstack_nnorm > 0) & (obj_mask_filt > 0))
 lqud_mask = ((hstack_nnorm > thresh) & (obj_mask_filt > 0))
 
@@ -231,5 +233,16 @@ import napari
 viewer = napari.Viewer()
 viewer.add_image(hstack_norm)
 viewer.add_image(hstack_nnorm)
-viewer.add_image(void_mask, blending="additive", opacity=0.5, colormap="bop orange")
-viewer.add_image(lqud_mask, blending="additive", opacity=0.5, colormap="bop blue"  )
+viewer.add_image(
+    void_mask, rendering="attenuated_mip",
+    blending="additive", opacity=0.5, 
+    colormap="bop orange"
+    )
+viewer.add_image(
+    lqud_mask, rendering="attenuated_mip",
+    blending="additive", opacity=0.5, 
+    colormap="bop blue"
+    )
+
+#%%
+
