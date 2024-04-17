@@ -18,4 +18,5 @@ dependencies:
   - spyder
   - pip
   - pip:
+    - bd-tools==0.1.0
     - napari[all]

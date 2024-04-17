@@ -164,7 +164,7 @@ def process_stacks(
             img_paths.append(path)
             
     # Resize stack
-    print("  Resize  :", end='')
+    print("  Resize     :", end='')
     t0 = time.time()
     stack_rsize = Parallel(n_jobs=-1)(
             delayed(resize_image)(img_path) 
@@ -174,7 +174,7 @@ def process_stacks(
     stack_rsize = downscale_local_mean(stack_rsize, (rsize_factor, 1, 1))
     t1 = time.time()
     print(f" {(t1-t0):<5.2f}s")
-    
+        
     # Select slices
     z_mean = np.mean(stack_rsize, axis=(1,2)) 
     z_mean_diff = np.gradient(z_mean)
@@ -184,7 +184,7 @@ def process_stacks(
     stack_rsize = stack_rsize[z0:z1, ...]  
     
     # Roll stack
-    print("  Roll    :", end='')
+    print("  Roll       :", end='')
     t0 = time.time()
     outputs = Parallel(n_jobs=-1)(
             delayed(roll_image)(img_rsize) 
@@ -196,7 +196,7 @@ def process_stacks(
     print(f" {(t1-t0):<5.2f}s") 
     
     # Get 2D masks
-    print("  2Dmasks :", end='')
+    print("  2Dmasks    :", end='')
     t0 = time.time()
     (
       avg_proj, mtx_thresh, rod_thresh,
@@ -213,7 +213,7 @@ def process_stacks(
     if stack_data:
         rscale_factor = np.sqrt(
             np.sum(stack_data[0]["rod_mask"]) / np.sum(rod_mask))
-        print("  Rescale :", end='')
+        print("  Rescale    :", end='')
         t0 = time.time()
         stack_rsize = rescale(stack_rsize, rscale_factor)
         avg_proj = rescale(avg_proj, rscale_factor)
@@ -225,7 +225,7 @@ def process_stacks(
         print(f" {(t1-t0):<5.2f}s") 
         
     # Get 3D masks
-    print("  3Dmasks :", end='')
+    print("  3Dmasks    :", end='')
     t0 = time.time()
     outputs = Parallel(n_jobs=-1)(
             delayed(get_3Dmasks)(
@@ -245,7 +245,7 @@ def process_stacks(
     print(f" {(t1-t0):<5.2f}s")
     
     # Get object properties
-    print("  Objects :", end='')
+    print("  Objects    :", end='')
     t0 = time.time()
     obj_mask_3D, obj_labels_3D, obj_props = get_object_properties(
         stack_norm, mtx_mask_3D, mtx_EDM_3D)
@@ -264,22 +264,22 @@ def process_stacks(
     stack_data.append({
         "stack_path"    : stack_path,
         "stack_rsize"   : stack_rsize,
-        "stack_roll"    : stack_roll,
-        "stack_norm"    : stack_norm,
+        # "stack_roll"    : stack_roll,
+        # "stack_norm"    : stack_norm,
         "yx_shifts"     : yx_shifts,
         "avg_proj"      : avg_proj,
         "mtx_thresh"    : mtx_thresh,
         "rod_thresh"    : rod_thresh,
         "mtx_mask"      : mtx_mask,
         "rod_mask"      : rod_mask,
-        "mtx_EDM"       : mtx_EDM,
-        "rod_EDM"       : rod_EDM,
+        # "mtx_EDM"       : mtx_EDM,
+        # "rod_EDM"       : rod_EDM,
         "avg_proj_3D"   : avg_proj_3D,
-        "rod_mask_3D"   : rod_mask_3D,
+        # "rod_mask_3D"   : rod_mask_3D,
         "mtx_mask_3D"   : mtx_mask_3D,
-        "rod_EDM_3D"    : rod_EDM_3D,
-        "mtx_EDM_3D"    : mtx_EDM_3D,
-        "obj_mask_3D"   : obj_mask_3D,
+        # "rod_EDM_3D"    : rod_EDM_3D,
+        # "mtx_EDM_3D"    : mtx_EDM_3D,
+        # "obj_mask_3D"   : obj_mask_3D,
         "obj_labels_3D" : obj_labels_3D,
         "obj_props"     : obj_props,
         })
@@ -299,7 +299,7 @@ def register_stacks(stack_data):
                     distance_matrix[i][j] = np.linalg.norm(coords[i] - coords[j])
         return distance_matrix
 
-    def affine_registration(coords_ref, coords_reg):
+    def get_transform_matrix(coords_ref, coords_reg):
        
         if coords_ref.shape[0] < coords_ref.shape[1]:
             coords_ref = coords_ref.T
@@ -319,7 +319,7 @@ def register_stacks(stack_data):
         
         return transform_matrix
 
-    def get_transform_matrix(data_ref, data_reg):
+    def get_transformed_stack(data_ref, data_reg):
         
         # Extract variables
         obj_props_ref = data_ref["obj_props"]
@@ -382,34 +382,35 @@ def register_stacks(stack_data):
             labels_3D_reg[labels_3D_reg == pairs[outlier, 0] + 1] = 0
             
         # Compute transformation matrix
-        transform_matrix = affine_registration(coords_ref, coords_reg)
+        transform_matrix = get_transform_matrix(coords_ref, coords_reg)
         
-        return transform_matrix
+        # Apply transformation
+        transformed_stack = affine_transform(
+            data_reg["stack_rsize"], transform_matrix
+            )
+        
+        return transformed_stack
     
     # Execute -----------------------------------------------------------------
 
     # Register data
     print("\nRegistration")
-    print("=============================")
-    print(f"- {stack_data[0]['stack_path'].name} : 00.00s")
-    stack_rsize_reg = [stack_data[0]["stack_rsize"]]
-    for i in range(1, len(stack_data)):
-        print(f"- {stack_data[i]['stack_path'].name} :", end='')
-        t0 = time.time()
-        transform_matrix = get_transform_matrix(stack_data[0], stack_data[i])
-        stack_rsize_reg.append(
-            affine_transform(stack_data[i]["stack_rsize"], transform_matrix)
+    print("=====================")
+    t0 = time.time()
+    hstack_reg = Parallel(n_jobs=-1)(
+            delayed(get_transformed_stack)(stack_data[0], stack_data[i]) 
+            for i in range(1, len(stack_data))
             )
-        t1 = time.time()
-        print(f" {(t1-t0):<5.2f}s") 
+    t1 = time.time()
+    print(f"  {(t1-t0):<5.2f}s") 
+    hstack_reg.insert(0, stack_data[0]["stack_rsize"])
     
-    min_z = np.min([stack.shape[0] for stack in stack_rsize_reg])
-    min_y = np.min([stack.shape[1] for stack in stack_rsize_reg]) 
-    min_x = np.min([stack.shape[2] for stack in stack_rsize_reg])
-
     # Crop data
-    for i in range(len(stack_rsize_reg)):
-        stack_rsize_reg[i] = stack_rsize_reg[i][:min_z, :min_y, :min_x]
-    stack_rsize_reg = np.stack(stack_rsize_reg)    
-    
-    return stack_rsize_reg
+    min_z = np.min([stack.shape[0] for stack in hstack_reg])
+    min_y = np.min([stack.shape[1] for stack in hstack_reg]) 
+    min_x = np.min([stack.shape[2] for stack in hstack_reg])
+    for i in range(len(hstack_reg)):
+        hstack_reg[i] = hstack_reg[i][:min_z, :min_y, :min_x]
+    hstack_reg = np.stack(hstack_reg)  
+       
+    return hstack_reg
