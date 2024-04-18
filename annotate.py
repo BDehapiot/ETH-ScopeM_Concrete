@@ -15,7 +15,7 @@ edit = True
 mask_type = "matrix"
 randomize, seed = True, 42
 contrast_limits = (0, 128)
-brush_size = 4
+brush_size = 1200
 
 #%% Initialize ----------------------------------------------------------------
 
@@ -93,6 +93,7 @@ def open_image():
         viewer.layers["mask"].brush_size = brush_size
         viewer.layers["mask"].selected_label = 1
         viewer.layers["mask"].mode = 'paint'
+        viewer.layers["mask"].opacity = 0.5
         
 def save_mask():
     path = viewer.layers["image"].metadata["path"]
