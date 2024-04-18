@@ -14,8 +14,8 @@ train_path = Path(Path.cwd(), 'data', 'train')
 edit = True
 mask_type = "matrix"
 randomize, seed = True, 42
-contrast_limits = (0, 0.75)
-brush_size = 60
+contrast_limits = (0, 128)
+brush_size = 4
 
 #%% Initialize ----------------------------------------------------------------
 
@@ -122,10 +122,10 @@ def previous_label():
         viewer.layers["mask"].selected_label -= 1 
         
 def increase_brush_size():
-    viewer.layers["mask"].brush_size += 5
+    viewer.layers["mask"].brush_size += 2
     
 def decrease_brush_size():
-    viewer.layers["mask"].brush_size -= 5
+    viewer.layers["mask"].brush_size -= 2
         
 def paint():
     viewer.layers["mask"].mode = 'paint'

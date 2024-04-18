@@ -10,6 +10,8 @@ import segmentation_models as sm
 from joblib import Parallel, delayed 
 from bdtools.patch import extract_patches
 
+from functions import median_filt
+
 # TensorFlow
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
@@ -19,7 +21,7 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 train_path = Path(Path.cwd(), 'data', 'train')
 
 # Patches
-size = 512
+size = 256
 overlap = size // 4
 
 # Data augmentation
@@ -39,6 +41,9 @@ def preprocess(path):
     # Open image and mask
     img = io.imread(Path(train_path, path.name.replace(f"_mask-{mask_type}", "")))
     msk = io.imread(path)
+    
+    # Process image
+    img = median_filt(img, radius=5)
     
     # Process mask
     msk = (msk > 0).astype("float32") 
