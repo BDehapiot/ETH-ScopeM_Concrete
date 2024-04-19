@@ -15,7 +15,7 @@ from functions import median_filt
 
 # Paths
 local_path = Path('D:/local_Concrete/data')
-model_name = "model-weights_0512.h5"
+model_name = "model-weights_matrix_p1024_d1.h5"
 stack_paths = list(local_path.glob("*.tif*"))
 stack_idx = 0
 

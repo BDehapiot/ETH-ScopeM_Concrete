@@ -4,6 +4,7 @@ import napari
 import numpy as np
 from skimage import io
 from pathlib import Path
+from functions import preprocess
 
 #%% Inputs --------------------------------------------------------------------
 
@@ -14,7 +15,7 @@ train_path = Path(Path.cwd(), 'data', 'train')
 edit = True
 mask_type = "matrix"
 randomize, seed = True, 42
-contrast_limits = (0, 128)
+contrast_limits = (0, 1)
 brush_size = 1200
 
 #%% Initialize ----------------------------------------------------------------
@@ -84,6 +85,9 @@ def open_image():
     elif not msk_path.exists():
         img = io.imread(img_path)
         msk = np.zeros_like(img, dtype="uint8")
+        
+    # Preprocess image
+    img = preprocess(img, 0.01, 99.99, 10)
         
     if "img" in locals():
         viewer.add_image(img, name="image", metadata=metadata[idxs[idx]])
