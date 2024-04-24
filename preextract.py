@@ -1,36 +1,45 @@
 #%% Imports -------------------------------------------------------------------
 
-import numpy as np
-from skimage import io
 from pathlib import Path
 from functions import import_stack
 
 #%% Inputs --------------------------------------------------------------------
 
-# Path
-experiment = "D1_ICONX_DoS"
-# experiment = "D11_ICONX_DoS"
-# experiment = "D12_ICONX_corrosion"
-# experiment = "H9_ICONX_DoS"
-data_path = Path('D:/local_Concrete/data')
-data_raw_path = Path(data_path, "0-raw")
-data_exp_path = Path(data_path, experiment)
-data_exp_path.mkdir(parents=True, exist_ok=True)
+experiments = [
+    "D1_ICONX_DoS",
+    "D11_ICONX_DoS",
+    "D12_ICONX_corrosion", 
+    "H9_ICONX_DoS",
+    ]
+    
+# Paths
+data_path = Path("D:/local_Concrete/data", "0-raw")
+save_path = Path("D:/local_Concrete/data", experiment)
 
-#%% Initialize ----------------------------------------------------------------
 
-stack_paths = []
-for path in data_raw_path.iterdir():
-    if path.is_dir() and experiment in path.name:
-        stack_paths.append(path)
+
+# Parameter
+
+save_path.mkdir(parents=True, exist_ok=True)
+
+#%% Import --------------------------------------------------------------------
+
+for exp in experiments:
+    exp_path = Path("D:/local_Concrete/data", exp)
+    exp_path.mkdir(parents=True, exist_ok=True)
+    
+    
+    for stack_path in data_path.iterdir():
         
-#%% Preprocess ----------------------------------------------------------------
 
-idx = 0
 
-# -----------------------------------------------------------------------------
+           
+    test_path = Path(save_path, stack_path.name + "_crop_d1.tif")
 
-stack = import_stack(stack_paths[idx], data_exp_path)
-
-# test_path = Path(processed_path, metadata["name"] + ".tif")
-# print(test_path.resolve())
+    if experiment == "all":
+        if not test_path.is_file():
+            import_stack(stack_path, save_path)
+    
+    else:
+        if not test_path.is_file() and experiment in stack_path.name:
+            import_stack(stack_path, save_path)

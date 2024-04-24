@@ -1,6 +1,7 @@
 #%% Imports -------------------------------------------------------------------
 
 import time
+import pickle
 import numpy as np
 from skimage import io
 from pathlib import Path
@@ -13,23 +14,14 @@ from skimage.transform import downscale_local_mean
 
 #%% Functions (common) --------------------------------------------------------
 
-def closest_divisibles(value, exponent):
-    divisor = 2 ** exponent
-    nearest_lower_divisor = value - (value % divisor)
-    if nearest_lower_divisor == value:
-        nearest_higher_divisor = value + divisor
+def nearest_divisibles(value, levels):
+    divisor = 2 ** levels
+    lowDiv = value - (value % divisor)
+    if lowDiv == value:
+        highDiv = value + divisor
     else:
-        nearest_higher_divisor = nearest_lower_divisor + divisor
-    return nearest_lower_divisor, nearest_higher_divisor
-
-# def closest_divisibles(value, expo):
-#     multiple = 2 ** rank
-#     lowDiv = value - (value % multiple)
-#     if lowDiv == value: 
-#         highDiv = value + multiple
-#     else: 
-#         highDiv = lowDiv + multiple
-#     return lowDiv, highDiv
+        highDiv = lowDiv + divisor
+    return lowDiv, highDiv
 
 def get_indexes(nIdx, maxIdx):
     if maxIdx <= nIdx:
@@ -53,41 +45,47 @@ def median_filt(arr, radius):
 
 def import_stack(stack_path, save_path):
 
-    # Initialize --------------------------------------------------------------    
-
-    stack_name = stack_path.name
-    img_paths = list(stack_path.glob("**/*.tif"))
-    print(stack_name)
-
     # Import ------------------------------------------------------------------
 
-    print("  Import : ", end='')
-    t0 = time.time()
+    stack_name = stack_path.name
 
-    stack = []
+    print(stack_name)
+    print(" - Import : ", end='')
+    t0 = time.time()
+    
+    stack1 = []
+    img_paths = list(stack_path.glob("**/*.tif"))
     for img_path in img_paths:
-        stack.append(io.imread(img_path))
-    stack = np.stack(stack)
+        stack1.append(io.imread(img_path))
+    stack1 = np.stack(stack1)
     
     # Select slices
-    z_mean = np.mean(stack, axis=(1,2)) 
+    z_mean = np.mean(stack1, axis=(1,2)) 
     z_mean_diff = np.gradient(z_mean)
     z0 = np.nonzero(z_mean_diff)[0][0] + 1
     z1 = np.where(
         (z_mean_diff > 0) & (z_mean > np.max(z_mean) * 0.9))[0][-1] + 1
-    if z0 % 2 != 0: z0 += 1 # round to superior even int
-    if z1 % 2 != 0: z1 -= 1 # round to inferior even int
-    stack = stack[z0:z1, ...]  
+     
+    # Crop to the nearest divisibles (zyx)
+    z0 = nearest_divisibles(z0, 4)[1] 
+    z1 = nearest_divisibles(z1, 4)[0] 
+    nYdiv = nearest_divisibles(stack1.shape[1], 4)[0]
+    nXdiv = nearest_divisibles(stack1.shape[2], 4)[0]
+    y0 = (stack1.shape[1] - nYdiv) // 2 
+    y1 = y0 + nYdiv
+    x0 = (stack1.shape[2] - nXdiv) // 2 
+    x1 = x0 + nXdiv
+    stack1 = stack1[z0:z1, y0:y1, x0:x1] 
 
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
     
     # Downscale ---------------------------------------------------------------
     
-    print("  Downscale : ", end='')
+    print(" - Downscale : ", end='')
     t0 = time.time()
-    
-    stack2 = downscale_local_mean(stack,  2)
+
+    stack2 = downscale_local_mean(stack1, 2)
     stack4 = downscale_local_mean(stack2, 2)
     stack8 = downscale_local_mean(stack4, 2)
     
@@ -96,28 +94,35 @@ def import_stack(stack_path, save_path):
     
     # Save --------------------------------------------------------------------
     
-    print("  Save : ", end='')
+    print(" - Save : ", end='')
     t0 = time.time()
     
+    # Data
     io.imsave(
-        Path(save_path, f"{stack_name}_z{z0}-{z1}_d1.tif"),
-        stack, check_contrast=False,
-        )
+        Path(save_path, stack_name + "_crop_d1.tif"), stack1, check_contrast=False)
     io.imsave(
-        Path(save_path, f"{stack_name}_z{z0}-{z1}_d2.tif"),
-        stack2, check_contrast=False,
-        )
+        Path(save_path, stack_name + "_crop_d2.tif"), stack2, check_contrast=False)
     io.imsave(
-        Path(save_path, f"{stack_name}_z{z0}-{z1}_d4.tif"),
-        stack4, check_contrast=False,
-        )
+        Path(save_path, stack_name + "_crop_d4.tif"), stack4, check_contrast=False)
     io.imsave(
-        Path(save_path, f"{stack_name}_z{z0}-{z1}_d8.tif"),
-        stack8, check_contrast=False,
-        )
-  
+        Path(save_path, stack_name + "_crop_d8.tif"), stack8, check_contrast=False)
+    
+    # Metadata
+    metadata = {
+        "name"  : stack_name,
+        "shape" : stack1.shape,
+        "z0" : z0, "z1" : z1,
+        "y0" : y0, "y1" : y1,
+        "x0" : x0, "x1" : x1,
+        }
+    
+    with open(Path(save_path, stack_name + "_metadata.pkl"), 'wb') as file:
+        pickle.dump(metadata, file)
+
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
+
+#%%
 
 # def preprocess(arr, min_pct, max_pct, radius):
 #     arr = normalize_gcn(arr)
