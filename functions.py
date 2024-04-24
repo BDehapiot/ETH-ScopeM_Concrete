@@ -3,6 +3,7 @@
 import time
 import numpy as np
 from skimage import io
+from pathlib import Path
 from joblib import Parallel, delayed
 
 # Skimage
@@ -12,6 +13,24 @@ from skimage.transform import downscale_local_mean
 
 #%% Functions (common) --------------------------------------------------------
 
+def closest_divisibles(value, exponent):
+    divisor = 2 ** exponent
+    nearest_lower_divisor = value - (value % divisor)
+    if nearest_lower_divisor == value:
+        nearest_higher_divisor = value + divisor
+    else:
+        nearest_higher_divisor = nearest_lower_divisor + divisor
+    return nearest_lower_divisor, nearest_higher_divisor
+
+# def closest_divisibles(value, expo):
+#     multiple = 2 ** rank
+#     lowDiv = value - (value % multiple)
+#     if lowDiv == value: 
+#         highDiv = value + multiple
+#     else: 
+#         highDiv = lowDiv + multiple
+#     return lowDiv, highDiv
+
 def get_indexes(nIdx, maxIdx):
     if maxIdx <= nIdx:
         idxs = np.arange(0, maxIdx)
@@ -19,23 +38,6 @@ def get_indexes(nIdx, maxIdx):
         idxs = np.linspace(maxIdx / (nIdx + 1), maxIdx, nIdx, endpoint=False)
     idxs = np.round(idxs).astype(int)
     return idxs 
-
-idxs = get_indexes(100, 34812)
-
-def normalize_gcn(arr):
-    arr = arr.astype("float32")
-    arr -= np.mean(arr)
-    arr /= np.std(arr)     
-    return arr
-
-def normalize_pct(arr, min_pct, max_pct):
-    arr = arr.astype("float32")
-    pMin = np.percentile(arr, min_pct);
-    pMax = np.percentile(arr, max_pct);
-    np.clip(arr, pMin, pMax, out=arr)
-    arr -= pMin
-    arr /= (pMax - pMin)   
-    return arr
 
 def median_filt(arr, radius):
     def _median_filt(img):
@@ -49,22 +51,22 @@ def median_filt(arr, radius):
 
 #%% Functions (procedures) ----------------------------------------------------
 
-def import_stack(stack_path):
+def import_stack(stack_path, save_path):
 
-    print(f"Import - {stack_path.name} : ", end='')
+    # Initialize --------------------------------------------------------------    
+
+    stack_name = stack_path.name
+    img_paths = list(stack_path.glob("**/*.tif"))
+    print(stack_name)
+
+    # Import ------------------------------------------------------------------
+
+    print("  Import : ", end='')
     t0 = time.time()
 
-    img_paths = list(stack_path.glob("**/*.tif"))
-
-    # Import images
-    def import_images(img_path):
-        img = io.imread(img_path)
-        return img
-    
-    stack = Parallel(n_jobs=-1)(
-            delayed(import_images)(img_path) 
-            for img_path in img_paths
-            )
+    stack = []
+    for img_path in img_paths:
+        stack.append(io.imread(img_path))
     stack = np.stack(stack)
     
     # Select slices
@@ -73,21 +75,49 @@ def import_stack(stack_path):
     z0 = np.nonzero(z_mean_diff)[0][0] + 1
     z1 = np.where(
         (z_mean_diff > 0) & (z_mean > np.max(z_mean) * 0.9))[0][-1] + 1
+    if z0 % 2 != 0: z0 += 1 # round to superior even int
+    if z1 % 2 != 0: z1 -= 1 # round to inferior even int
     stack = stack[z0:z1, ...]  
+
+    t1 = time.time()
+    print(f"{(t1-t0):<5.2f}s")
     
-    # Append metadata
-    metadata = {
-        "name" : stack_path.name,
-        "nZ" : stack.shape[0], 
-        "nY" : stack.shape[1], 
-        "nX" : stack.shape[2],
-        "z0" : z0, "z1" : z1,
-        }
+    # Downscale ---------------------------------------------------------------
+    
+    print("  Downscale : ", end='')
+    t0 = time.time()
+    
+    stack2 = downscale_local_mean(stack,  2)
+    stack4 = downscale_local_mean(stack2, 2)
+    stack8 = downscale_local_mean(stack4, 2)
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
     
-    return stack, metadata
+    # Save --------------------------------------------------------------------
+    
+    print("  Save : ", end='')
+    t0 = time.time()
+    
+    io.imsave(
+        Path(save_path, f"{stack_name}_z{z0}-{z1}_d1.tif"),
+        stack, check_contrast=False,
+        )
+    io.imsave(
+        Path(save_path, f"{stack_name}_z{z0}-{z1}_d2.tif"),
+        stack2, check_contrast=False,
+        )
+    io.imsave(
+        Path(save_path, f"{stack_name}_z{z0}-{z1}_d4.tif"),
+        stack4, check_contrast=False,
+        )
+    io.imsave(
+        Path(save_path, f"{stack_name}_z{z0}-{z1}_d8.tif"),
+        stack8, check_contrast=False,
+        )
+  
+    t1 = time.time()
+    print(f"{(t1-t0):<5.2f}s")
 
 # def preprocess(arr, min_pct, max_pct, radius):
 #     arr = normalize_gcn(arr)
