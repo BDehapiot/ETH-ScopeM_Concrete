@@ -22,11 +22,12 @@ experiments = [
     ]
 
 # Parameters
+overwrite = False
 dfs = [1, 2, 4] # downscale factor range
 
 #%% Function(s) ---------------------------------------------------------------
 
-def format_stack(path, save_path, dfs):
+def format_stack(path, experiment_path, dfs):
     
     # Initialize --------------------------------------------------------------
 
@@ -34,8 +35,8 @@ def format_stack(path, save_path, dfs):
 
     # Read --------------------------------------------------------------------
     
+    print(f"(format) {name}")
     t0 = time.time()
-    print(name)
     print(" - Read : ", end='')
     
     stack = []
@@ -95,26 +96,23 @@ def format_stack(path, save_path, dfs):
     
     # Paths
     save_names = [name + f"_crop_df{df}.tif" for df in dfs]
-    save_paths = [save_path / save_name for save_name in save_names]
+    save_paths = [experiment_path / save_name for save_name in save_names]
     
     # Data
     for i, df in enumerate(dfs): 
         io.imsave(save_paths[i], stacks[i], check_contrast=False)
         
     # Metadata
+    metadata_path = experiment_path / (name + "_metadata_o.pkl") 
     metadata = {
         "dfs"    : dfs,
         "names"  : save_names,
         "paths"  : save_paths,
         "shapes" : [stack.shape for stack in stacks],
-        "info"   : {
-            "z0" : z0, "z1" : z1,
-            "y0" : y0, "y1" : y1,
-            "x0" : x0, "x1" : x1,
-            }
+        "crop"   : (z0, z1, y0, y1, x0, x1),
         }
     
-    with open(save_path / name + "_metadata.pkl", 'wb') as file:
+    with open(metadata_path, 'wb') as file:
         pickle.dump(metadata, file)
 
     t1 = time.time()
@@ -124,9 +122,11 @@ def format_stack(path, save_path, dfs):
 
 if __name__ == "__main__":
     for experiment in experiments:
-        save_path = Path(data_path, experiment)
-        save_path.mkdir(parents=True, exist_ok=True)
+        experiment_path = data_path / experiment
+        experiment_path.mkdir(parents=True, exist_ok=True)
         for path in raw_path.glob(f"*{experiment}*"):
-            format_stack(path, save_path, dfs)
-            # if not path.with_name(path.name + "_crop_df1.tif").is_file():
-                
+            test_path = experiment_path / (path.name + "_crop_df1.tif")
+            if not test_path.is_file():
+                format_stack(path, experiment_path, dfs)   
+            elif overwrite:
+                format_stack(path, experiment_path, dfs)  

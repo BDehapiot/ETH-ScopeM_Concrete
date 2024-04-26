@@ -10,12 +10,14 @@ from joblib import Parallel, delayed
 # Skimage
 from skimage.filters import gaussian
 from skimage.transform import rescale
-from skimage.morphology import disk, binary_dilation
+from skimage.morphology import disk, binary_dilation, binary_erosion
 
 # Scipy
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks, peak_prominences
-from scipy.ndimage import shift, gaussian_filter1d, binary_fill_holes
+from scipy.ndimage import (
+    shift, gaussian_filter1d, binary_fill_holes, distance_transform_edt
+    )
 
 #%% Inputs --------------------------------------------------------------------
 
@@ -29,29 +31,30 @@ experiments = [
     ]
 
 # Parameters
+overwrite = True
 df = 4 # downscale factor for preprocessing
 
 #%% Function(s) ---------------------------------------------------------------
 
-def preprocess_stack(stack_path, experiment_path, df):
+def preprocess_stack(path, experiment_path, df):
     
-    global metadata # dev
+    global metadata, new_metadata # dev
     
     # Initialize --------------------------------------------------------------
         
-    stack_name = stack_path.name.replace(f"_crop_df{df}.tif", "")
-    metadata_path = Path(experiment_path, stack_name + "_metadata.pkl") 
+    name = path.name.replace(f"_crop_df{df}.tif", "")
     
     # Read --------------------------------------------------------------------
 
-    print(stack_name)
-    print(" - Read :", end='')
+    print(f"(preprocess) {name}")
     t0 = time.time()
+    print(" - Read :", end='')
     
     # Data
-    stack = io.imread(stack_path)
+    stack = io.imread(path)
         
     # Metadata
+    metadata_path = experiment_path / (name + "_metadata_o.pkl") 
     with open(metadata_path, 'rb') as file:
         metadata = pickle.load(file)
     
@@ -60,14 +63,14 @@ def preprocess_stack(stack_path, experiment_path, df):
     
     # Roll --------------------------------------------------------------------
     
-    print(" - Roll :", end='')
     t0 = time.time()
+    print(" - Roll :", end='')
     
     def roll_image(img):
         idx = np.argwhere((img > 30000) == 1)
         y0, x0 = img.shape[0] // 2, img.shape[1] // 2
         y1, x1 = np.mean(idx, axis=0)
-        yx_shift = (y0 - y1, x0 - x1)
+        yx_shift = [y0 - y1, x0 - x1]
         return shift(img, yx_shift, mode='wrap'), yx_shift
     
     outputs = Parallel(n_jobs=-1)(
@@ -82,9 +85,10 @@ def preprocess_stack(stack_path, experiment_path, df):
     
     # Mask --------------------------------------------------------------------
     
-    print(" - Mask : ", end='')
     t0 = time.time()
-    
+    print(" - Mask : ", end='')
+
+    # Median projection
     med_proj = np.median(roll, axis=0)
 
     # Intensity distribution
@@ -108,15 +112,18 @@ def preprocess_stack(stack_path, experiment_path, df):
     rod_mask = binary_fill_holes(rod_mask)
     rod_mask = binary_dilation(rod_mask, footprint=disk(1)) # Parameter
     mtx_mask = mtx_mask ^ rod_mask
+    mtx_mask = binary_erosion(mtx_mask, footprint=disk(1)) # Parameter
+    mtx_EDM = distance_transform_edt(mtx_mask | rod_mask)
+    rod_EDM = distance_transform_edt(~rod_mask)
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s") 
     
     # Rescale -----------------------------------------------------------------
     
-    print(" - Rescale : ", end='')
     t0 = time.time()
-    
+    print(" - Rescale : ", end='')
+     
     def rescale_mask(mask, rf):
         mask = rescale(mask.astype(float), rf)
         mask = gaussian(mask, sigma=rf * 2) > 0.5
@@ -135,22 +142,26 @@ def preprocess_stack(stack_path, experiment_path, df):
         
         yx_new = []
         for y, x in zip(y_new, x_new):
-            yx_new.append((y, x))
+            yx_new.append((y * rf, x * rf))
             
         return yx_new
     
-    med_projs, mtx_masks, rod_masks, yx_shifts = [], [], [], []
-    for f in [1, 2, 4, 8]:
+    med_projs, mtx_masks, rod_masks, mtx_EDMs, rod_EDMs, yx_shifts = [], [], [], [], [], []
+    for f in metadata["dfs"]:
         rf = df / f
         if rf != 1:
             med_projs.append(rescale(med_proj, rf))
             mtx_masks.append(rescale_mask(mtx_mask, rf))
             rod_masks.append(rescale_mask(rod_mask, rf)) 
+            mtx_EDMs.append(rescale(mtx_EDM, rf) * rf) # Check the multiplication by rf factor?
+            rod_EDMs.append(rescale(rod_EDM, rf) * rf) # Check the multiplication by rf factor?
             yx_shifts.append(rescale_shift(yx_shift, rf))
         else:
             med_projs.append(med_proj)
             mtx_masks.append(mtx_mask)
             rod_masks.append(rod_mask)
+            mtx_EDMs.append(mtx_EDM)
+            rod_EDMs.append(rod_EDM)
             yx_shifts.append(yx_shift)
     
     t1 = time.time()
@@ -158,42 +169,47 @@ def preprocess_stack(stack_path, experiment_path, df):
     
     # Save --------------------------------------------------------------------
     
-    print(" - Save : ", end='')
     t0 = time.time()
+    print(" - Save : ", end='')
     
     # Metadata
-    metadata_path = Path(experiment_path, stack_name + "_metadata.pkl") 
-    with open(metadata_path, 'rb') as file:
-        metadata = pickle.load(file)
-    metadata["med_projs"] = med_projs
-    metadata["mtx_masks"] = mtx_masks
-    metadata["rod_masks"] = rod_masks
-    metadata["yx_shifts"] = yx_shifts
-
+    new_metadata_path = experiment_path / (name + "_metadata_oo.pkl") 
+    new_metadata = metadata.copy()
+    new_metadata["med_projs"] = med_projs
+    new_metadata["mtx_masks"] = mtx_masks
+    new_metadata["rod_masks"] = rod_masks
+    new_metadata["mtx_EDMs"] = mtx_EDMs
+    new_metadata["rod_EDMs"] = rod_EDMs
+    new_metadata["yx_shifts"] = yx_shifts
+    
+    with open(new_metadata_path, 'wb') as file:
+        pickle.dump(new_metadata, file)
+    
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s") 
     
 #%% Execute -------------------------------------------------------------------
 
-t = 0
-
 if __name__ == "__main__":
     for experiment in experiments:
-        experiment_path = Path("D:/local_Concrete/data", experiment)
-    
-        for stack_path in experiment_path.glob(f"*_crop_df{df}*"):
-            if f"Time{t}" in stack_path.name: # Dev
-                preprocess_stack(stack_path, experiment_path, df)
-
+        experiment_path = data_path / experiment
+        for path in experiment_path.glob(f"*_crop_df{df}*"):
+            name = path.name.replace(f"_crop_df{df}.tif", "")
+            test_path = experiment_path / (name + "_metadata_oo.pkl")
+            if not test_path.is_file():
+                preprocess_stack(path, experiment_path, df)
+            elif overwrite:
+                preprocess_stack(path, experiment_path, df)
             
 #%%
 
-# idx = 0
-# mask_opacity = 0.5
+idx = 0
+mask_opacity = 0.5
 
-# import napari
-# viewer = napari.Viewer()
-# viewer.add_image(metadata["med_projs"][idx])
-# viewer.add_image(metadata["mtx_masks"][idx], blending="additive", colormap="bop orange", opacity=mask_opacity)
-# viewer.add_image(metadata["rod_masks"][idx], blending="additive", colormap="bop blue", opacity=mask_opacity)
-
+import napari
+viewer = napari.Viewer()
+viewer.add_image(new_metadata["med_projs"][idx])
+# viewer.add_image(new_etadata["mtx_masks"][idx], blending="additive", colormap="bop orange", opacity=mask_opacity)
+# viewer.add_image(new_metadata["rod_masks"][idx], blending="additive", colormap="bop blue", opacity=mask_opacity)
+viewer.add_image(new_metadata["mtx_EDMs"][idx])
+viewer.add_image(new_metadata["rod_EDMs"][idx])
