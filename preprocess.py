@@ -38,7 +38,7 @@ df = 4 # downscale factor for preprocessing
 
 def preprocess_stack(path, experiment_path, df):
     
-    global metadata, new_metadata # dev
+    global metadata, new_metadata, stack, stack_norm # dev
     
     # Initialize --------------------------------------------------------------
         
@@ -77,7 +77,7 @@ def preprocess_stack(path, experiment_path, df):
         delayed(roll_image)(img) 
         for img in stack
         )
-    roll = np.stack([data[0] for data in outputs])
+    stack_roll = np.stack([data[0] for data in outputs])
     yx_shift = [data[1] for data in outputs]
     
     t1 = time.time()
@@ -89,7 +89,7 @@ def preprocess_stack(path, experiment_path, df):
     print(" - Mask : ", end='')
 
     # Median projection
-    med_proj = np.median(roll, axis=0)
+    med_proj = np.median(stack_roll, axis=0)
 
     # Intensity distribution
     hist, bins = np.histogram(
@@ -105,19 +105,49 @@ def preprocess_stack(path, experiment_path, df):
         (bins[select_pks[1]] - bins[select_pks[0]]) / 2)
     rod_thresh = bins[select_pks[2]] - (
         (bins[select_pks[2]] - bins[select_pks[1]]) / 2)
-    # mtx_thresh *= mtx_thresh_coeff
-    # rod_thresh *= rod_thresh_coeff
     mtx_mask = med_proj >= mtx_thresh
     rod_mask = med_proj >= rod_thresh
     rod_mask = binary_fill_holes(rod_mask)
     rod_mask = binary_dilation(rod_mask, footprint=disk(1)) # Parameter
     mtx_mask = mtx_mask ^ rod_mask
     mtx_mask = binary_erosion(mtx_mask, footprint=disk(1)) # Parameter
-    mtx_EDM = distance_transform_edt(mtx_mask | rod_mask)
-    rod_EDM = distance_transform_edt(~rod_mask)
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s") 
+    
+    # Objects -----------------------------------------------------------------
+        
+    from skimage.filters import median
+    
+    def normalize_stack(stack, med_proj, yx_shift, median=1, mask=None):
+        
+        def _normalize_stack(img, med_proj, yx_shift, mask=mask):
+            yx_shift = [yx_shift[0] * -1, yx_shift[1] * -1]
+            med_proj = shift(med_proj, yx_shift)
+            img_norm = np.divide(img, med_proj, where=med_proj!=0)
+            if median > 1:
+                img_norm = median(img_norm, footprint=disk(3))
+            if mask is not None:
+                mask = shift(mask.astype("uint8"), yx_shift)
+                img_norm *= mask
+            return img_norm
+        
+        if stack.ndim == 2:
+            stack_norm = _normalize_stack(stack, med_proj, yx_shift, mask=mask)
+        
+        if stack.ndim == 3:
+            stack_norm = Parallel(n_jobs=-1)(
+                delayed(_normalize_stack)(
+                    img, med_proj, yx_shift[z], mask=mask
+                    ) 
+                for z, img in enumerate(stack)
+                )
+            stack_norm = np.stack(stack_norm)
+        
+        return stack_norm
+    
+    stack_norm = normalize_stack(stack, med_proj, yx_shift, mask=mtx_mask)
+    
     
     # Rescale -----------------------------------------------------------------
     
@@ -146,22 +176,18 @@ def preprocess_stack(path, experiment_path, df):
             
         return yx_new
     
-    med_projs, mtx_masks, rod_masks, mtx_EDMs, rod_EDMs, yx_shifts = [], [], [], [], [], []
+    med_projs, mtx_masks, rod_masks, yx_shifts = [], [], [], []
     for f in metadata["dfs"]:
         rf = df / f
         if rf != 1:
             med_projs.append(rescale(med_proj, rf))
             mtx_masks.append(rescale_mask(mtx_mask, rf))
             rod_masks.append(rescale_mask(rod_mask, rf)) 
-            mtx_EDMs.append(rescale(mtx_EDM, rf) * rf) # Check the multiplication by rf factor?
-            rod_EDMs.append(rescale(rod_EDM, rf) * rf) # Check the multiplication by rf factor?
             yx_shifts.append(rescale_shift(yx_shift, rf))
         else:
             med_projs.append(med_proj)
             mtx_masks.append(mtx_mask)
             rod_masks.append(rod_mask)
-            mtx_EDMs.append(mtx_EDM)
-            rod_EDMs.append(rod_EDM)
             yx_shifts.append(yx_shift)
     
     t1 = time.time()
@@ -178,8 +204,6 @@ def preprocess_stack(path, experiment_path, df):
     new_metadata["med_projs"] = med_projs
     new_metadata["mtx_masks"] = mtx_masks
     new_metadata["rod_masks"] = rod_masks
-    new_metadata["mtx_EDMs"] = mtx_EDMs
-    new_metadata["rod_EDMs"] = rod_EDMs
     new_metadata["yx_shifts"] = yx_shifts
     
     with open(new_metadata_path, 'wb') as file:
@@ -190,26 +214,34 @@ def preprocess_stack(path, experiment_path, df):
     
 #%% Execute -------------------------------------------------------------------
 
+t = 2
+
 if __name__ == "__main__":
     for experiment in experiments:
         experiment_path = data_path / experiment
         for path in experiment_path.glob(f"*_crop_df{df}*"):
-            name = path.name.replace(f"_crop_df{df}.tif", "")
-            test_path = experiment_path / (name + "_metadata_oo.pkl")
-            if not test_path.is_file():
-                preprocess_stack(path, experiment_path, df)
-            elif overwrite:
-                preprocess_stack(path, experiment_path, df)
             
+            if f"Time{t}" in path.name:
+            
+                name = path.name.replace(f"_crop_df{df}.tif", "")
+                test_path = experiment_path / (name + "_metadata_oo.pkl")
+                if not test_path.is_file():
+                    preprocess_stack(path, experiment_path, df)
+                elif overwrite:
+                    preprocess_stack(path, experiment_path, df)
+                
 #%%
 
-idx = 0
-mask_opacity = 0.5
+# idx = 0
+# mask_opacity = 0.5
 
 import napari
 viewer = napari.Viewer()
-viewer.add_image(new_metadata["med_projs"][idx])
-# viewer.add_image(new_etadata["mtx_masks"][idx], blending="additive", colormap="bop orange", opacity=mask_opacity)
+viewer.add_image(stack)
+viewer.add_image(stack_norm)
+
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(new_metadata["med_projs"][idx])
+# viewer.add_image(new_metadata["mtx_masks"][idx], blending="additive", colormap="bop orange", opacity=mask_opacity)
 # viewer.add_image(new_metadata["rod_masks"][idx], blending="additive", colormap="bop blue", opacity=mask_opacity)
-viewer.add_image(new_metadata["mtx_EDMs"][idx])
-viewer.add_image(new_metadata["rod_EDMs"][idx])
