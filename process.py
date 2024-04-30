@@ -10,7 +10,11 @@ from joblib import Parallel, delayed
 # Skimage
 from skimage.filters import gaussian
 from skimage.transform import rescale
-from skimage.morphology import disk, binary_dilation, binary_erosion
+from skimage.segmentation import clear_border
+from skimage.measure import label, regionprops
+from skimage.morphology import (
+    disk, binary_dilation, binary_erosion, remove_small_objects
+    )
 
 # Scipy
 from scipy.interpolate import interp1d
@@ -18,6 +22,9 @@ from scipy.signal import find_peaks, peak_prominences
 from scipy.ndimage import (
     shift, gaussian_filter1d, binary_fill_holes, distance_transform_edt
     )
+
+# Functions 
+from functions import normalize_stack
 
 #%% Inputs --------------------------------------------------------------------
 
@@ -38,7 +45,7 @@ df = 4 # downscale factor for preprocessing
 
 def preprocess_stack(path, experiment_path, df):
     
-    global metadata, new_metadata, stack, stack_norm # dev
+    global metadata, new_metadata, stack, stack_norm, obj_mask, obj_labels # dev
     
     # Initialize --------------------------------------------------------------
         
@@ -111,6 +118,42 @@ def preprocess_stack(path, experiment_path, df):
     rod_mask = binary_dilation(rod_mask, footprint=disk(1)) # Parameter
     mtx_mask = mtx_mask ^ rod_mask
     mtx_mask = binary_erosion(mtx_mask, footprint=disk(1)) # Parameter
+
+    # Get EDMs
+    mtx_EDM = distance_transform_edt(mtx_mask | rod_mask)
+    rod_EDM = distance_transform_edt(~rod_mask)
+
+    t1 = time.time()
+    print(f"{(t1-t0):<5.2f}s") 
+    
+    # Objects -----------------------------------------------------------------
+    
+    t0 = time.time()
+    print(" - Objects : ", end='')
+    
+    # Normalize stack
+    stack_norm = normalize_stack(
+        stack, med_proj, yx_shift, radius=df, mask=mtx_mask)
+
+    # Object mask and labels
+    obj_mask = (stack_norm < 0.8) & (stack_norm > 0) # parameter
+    obj_mask = remove_small_objects(
+        obj_mask, min_size=2.5e5 * (1 / df) ** 3) # parameter
+    obj_mask = clear_border(obj_mask)
+    obj_labels = label(obj_mask)
+    
+    # Get object properties
+    obj_props = []
+    # mtx_EDM_3D /= np.max(mtx_EDM_3D)
+    props = regionprops(obj_labels, intensity_image=mtx_EDM)
+    for prop in props:
+        obj_props.append((
+            prop.label,
+            prop.centroid,
+            prop.area,
+            prop.intensity_mean,
+            prop.solidity,
+            )) 
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s") 
@@ -203,8 +246,9 @@ if __name__ == "__main__":
 
 import napari
 viewer = napari.Viewer()
-viewer.add_image(stack)
+# viewer.add_image(stack)
 viewer.add_image(stack_norm)
+viewer.add_labels(obj_labels)
 
 # import napari
 # viewer = napari.Viewer()

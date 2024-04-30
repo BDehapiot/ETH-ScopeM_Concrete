@@ -5,6 +5,7 @@ import pickle
 import numpy as np
 from skimage import io
 from pathlib import Path
+from joblib import Parallel, delayed
 
 # Skimage
 from skimage.transform import downscale_local_mean
@@ -29,6 +30,8 @@ dfs = [1, 2, 4] # downscale factor range
 
 def format_stack(path, experiment_path, dfs):
     
+    global metadata
+    
     # Initialize --------------------------------------------------------------
 
     name = path.name    
@@ -48,10 +51,10 @@ def format_stack(path, experiment_path, dfs):
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
     
-    # Format ------------------------------------------------------------------
+    # Crop --------------------------------------------------------------------
     
     t0 = time.time()
-    print(" - Format : ", end='')
+    print(" - Crop : ", end='')
 
     def nearest_divisibles(value, levels):
         divisor = 2 ** levels
@@ -65,22 +68,29 @@ def format_stack(path, experiment_path, dfs):
     # Select slices
     z_mean = np.mean(stack, axis=(1,2)) 
     z_mean_diff = np.gradient(z_mean)
-    z0 = np.nonzero(z_mean_diff)[0][0] + 1
-    z1 = np.where(
+    zCrop0 = np.nonzero(z_mean_diff)[0][0] + 1
+    zCrop1 = np.where(
         (z_mean_diff > 0) & (z_mean > np.max(z_mean) * 0.9))[0][-1] + 1
      
     # Crop (zyx)   
-    z0 = nearest_divisibles(z0, len(dfs))[1] 
-    z1 = nearest_divisibles(z1, len(dfs))[0] 
+    zCrop0 = nearest_divisibles(zCrop0, len(dfs))[1] 
+    zCrop1 = nearest_divisibles(zCrop1, len(dfs))[0] 
     nYdiv = nearest_divisibles(stack.shape[1], len(dfs))[0]
     nXdiv = nearest_divisibles(stack.shape[2], len(dfs))[0]
-    y0 = (stack.shape[1] - nYdiv) // 2 
-    y1 = y0 + nYdiv
-    x0 = (stack.shape[2] - nXdiv) // 2 
-    x1 = x0 + nXdiv
-    stack = stack[z0:z1, y0:y1, x0:x1] 
+    yCrop0 = (stack.shape[1] - nYdiv) // 2 
+    yCrop1 = yCrop0 + nYdiv
+    xCrop0 = (stack.shape[2] - nXdiv) // 2 
+    xCrop1 = xCrop0 + nXdiv
+    stack = stack[zCrop0:zCrop1, yCrop0:yCrop1, xCrop0:xCrop1] 
 
-    # Downscale (zyx) 
+    t1 = time.time()
+    print(f"{(t1-t0):<5.2f}s")
+
+    # Downscale ---------------------------------------------------------------
+
+    t0 = time.time()
+    print(" - Downscale : ", end='')
+
     stacks = [stack]
     for i, df in enumerate(dfs):
         if df > 1:
@@ -105,11 +115,11 @@ def format_stack(path, experiment_path, dfs):
     # Metadata
     metadata_path = experiment_path / (name + "_metadata_o.pkl") 
     metadata = {
-        "dfs"    : dfs,
-        "names"  : save_names,
-        "paths"  : save_paths,
-        "shapes" : [stack.shape for stack in stacks],
-        "crop"   : (z0, z1, y0, y1, x0, x1),
+        "dfs"      : dfs,
+        "names"    : save_names,
+        "paths"    : save_paths,
+        "shapes"   : [stack.shape for stack in stacks],
+        "crop"     : (zCrop0, zCrop1, yCrop0, yCrop1, xCrop0, xCrop1),
         }
     
     with open(metadata_path, 'wb') as file:
@@ -120,13 +130,18 @@ def format_stack(path, experiment_path, dfs):
 
 #%% Execute -------------------------------------------------------------------
 
+t = 0
+
 if __name__ == "__main__":
     for experiment in experiments:
         experiment_path = data_path / experiment
         experiment_path.mkdir(parents=True, exist_ok=True)
         for path in raw_path.glob(f"*{experiment}*"):
-            test_path = experiment_path / (path.name + "_crop_df1.tif")
-            if not test_path.is_file():
-                format_stack(path, experiment_path, dfs)   
-            elif overwrite:
-                format_stack(path, experiment_path, dfs)  
+            
+            if f"Time{t}" in path.name:
+            
+                test_path = experiment_path / (path.name + "_crop_df1.tif")
+                if not test_path.is_file():
+                    format_stack(path, experiment_path, dfs)   
+                elif overwrite:
+                    format_stack(path, experiment_path, dfs)  
