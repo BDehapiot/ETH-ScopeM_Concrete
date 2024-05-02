@@ -9,7 +9,7 @@ from joblib import Parallel, delayed
 
 # Skimage
 from skimage.filters import gaussian
-from skimage.transform import downscale_local_mean
+from skimage.transform import downscale_local_mean, rescale
 from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import (
@@ -40,14 +40,20 @@ experiments = [
 
 # Parameters
 overwrite = False
-df = 8 # downscale factor
+df = 4 # downscale factor
 
 #%% Function(s) ---------------------------------------------------------------
 
 def format_stack(path, experiment_path, df):
     
-    global stack, metadata, centroids, stack_shift, stack_norm, obj_mask, obj_labels, props
-    
+    global \
+        stack, metadata, centroids,\
+        stack_shift, stack_norm,\
+        mtx_EDM, rod_EDM,\
+        mtx_EDM_3D, mtx_EDM_3D_low,\
+        obj_mask_3D, obj_labels_3D, obj_labels_3D_low,\
+        mtx_EDM_avg, obj_EDM_avg, obj_props
+
     # Initialize --------------------------------------------------------------
 
     name = path.name    
@@ -117,18 +123,18 @@ def format_stack(path, experiment_path, df):
     t0 = time.time()
     print(" - Shift : ", end='')
 
-    def get_centroid(img):
+    def get_centers(img):
         idx = np.argwhere((img > 30e3) == 1) # parameter
         y0, x0 = img.shape[0] // 2, img.shape[1] // 2
         y1, x1 = np.mean(idx, axis=0)
         return [y0 - y1, x0 - x1]
     
-    centroids = Parallel(n_jobs=-1)(
-            delayed(get_centroid)(img) 
+    centers = Parallel(n_jobs=-1)(
+            delayed(get_centers)(img) 
             for img in stack
             )
     
-    stack_shift = shift_stack(stack, centroids)
+    stack_shift = shift_stack(stack, centers)
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
@@ -174,34 +180,57 @@ def format_stack(path, experiment_path, df):
     t0 = time.time()
     print(" - Objects : ", end='')
         
+    def get_object_EDM(idx, obj_labels_3D, mtx_EDM_3D):
+        labels = obj_labels_3D.copy()
+        labels[labels == idx] = 0
+        obj_EDM_3D = distance_transform_edt(1 - labels > 0)
+        obj_EDM_3D[obj_labels_3D == 0] = 0 # Don't know why
+        obj_dist = np.mean(obj_EDM_3D[obj_labels_3D == idx])
+        mtx_dist = np.mean(mtx_EDM_3D[obj_labels_3D == idx])
+        return obj_dist, mtx_dist
+    
+    # Parameters
+    obj_df = 16 // df # parameter
+    
     # Normalize stack
     stack_norm = norm_stack(
-        stack, med_proj, centroids,
-        radius= 16 // df, # Parameter
-        mask=mtx_mask
-        )
+        stack, med_proj, centers, radius=obj_df,  mask=mtx_mask)
     
     # Object mask and labels
-    obj_mask = (stack_norm < 0.8) & (stack_norm > 0) # parameter
-    obj_mask = remove_small_objects(
-        obj_mask, min_size=2.5e5 * (1 / df) ** 3) # parameter
-    obj_mask = clear_border(obj_mask)
-    obj_labels = label(obj_mask)
+    obj_mask_3D = (stack_norm < 0.8) & (stack_norm > 0) # parameter
+    obj_mask_3D = remove_small_objects(
+        obj_mask_3D, min_size=2.5e5 * (1 / df) ** 3) # parameter
+    obj_mask_3D = clear_border(obj_mask_3D)
+    obj_labels_3D = label(obj_mask_3D)
+    
+    # Get EDM measurments
+    idxs = np.unique(obj_labels_3D)[1:]
+    obj_labels_3D_low = rescale(
+        obj_labels_3D, 1 / obj_df, order=0).astype(int)
+    mtx_EDM_3D_low = rescale(
+        shift_stack(mtx_EDM, centers, reverse=True), 1 / obj_df)
+    outputs = Parallel(n_jobs=-1)(
+            delayed(get_object_EDM)(idx, obj_labels_3D_low, mtx_EDM_3D_low) 
+            for idx in idxs
+            )
+    obj_dist = [data[0] for data in outputs] * obj_df
+    mtx_dist = [data[1] for data in outputs] * obj_df
+    obj_dist /= np.mean(obj_dist)
+    mtx_dist /= np.mean(mtx_dist)
     
     # Get object properties
-    obj_props = []
-    mtx_EDM_3D = shift_stack(mtx_EDM, centroids, reverse=True)
-    mtx_EDM_3D /= np.max(mtx_EDM_3D)
-    props = regionprops(obj_labels, intensity_image=mtx_EDM_3D)
-    # for prop in props:
-    #     obj_props.append((
-    #         prop.label,
-    #         prop.centroid,
-    #         prop.area,
-    #         prop.intensity_mean,
-    #         prop.solidity,
-    #         )) 
-    
+    objects = []
+    props = regionprops(obj_labels_3D)
+    for i, prop in enumerate(props):
+        objects.append({
+            "label"    : prop.label,
+            "centroid" : prop.centroid,
+            "area"     : prop.area,
+            "solidity" : prop.solidity,
+            "obj_dist" : obj_dist[i],
+            "mtx_dist" : mtx_dist[i],
+            })
+            
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s") 
     
@@ -211,19 +240,31 @@ def format_stack(path, experiment_path, df):
     print(" - Save : ", end='')
     
     # Data
-    save_name = name + f"_crop_df{df}.tif" 
-    save_path = experiment_path / save_name
-    io.imsave(save_path, stack, check_contrast=False)
+    io.imsave(
+        experiment_path / (name + f"_crop_df{df}.tif"), 
+        stack.astype("uint16"), check_contrast=False
+        )
+    io.imsave(
+        experiment_path / (name + f"_crop_df{df}_norm.tif"), 
+        stack_norm.astype("float32"), check_contrast=False
+        )
+    io.imsave(
+        experiment_path / (name + f"_crop_df{df}_labels.tif"), 
+        obj_labels_3D.astype("uint16"), check_contrast=False
+        )
         
     # Metadata
-    metadata_path = experiment_path / (name + "_metadata_o.pkl") 
+    metadata_path = experiment_path / (name + "_metadata.pkl") 
     metadata = {
-        "df"        : df,
-        "name"      : save_name,
-        "path"      : save_path,
-        "shape"     : stack.shape,
-        "crop"      : (z0, z1, y0, y1, x0, x1),
-        "centroids" : centroids,
+        "df"       : df,
+        "crops"    : (z0, z1, y0, y1, x0, x1),
+        "centers"  : centers,
+        "med_proj" : med_proj,
+        "mtx_mask" : mtx_mask,
+        "rod_mask" : rod_mask,
+        "mtx_EDM"  : mtx_EDM,
+        "rod_EDM"  : rod_EDM,
+        "objects"  : objects,
         }
     
     with open(metadata_path, 'wb') as file:
@@ -242,27 +283,18 @@ if __name__ == "__main__":
         experiment_path.mkdir(parents=True, exist_ok=True)
         for path in raw_path.glob(f"*{experiment}*"):
             
-            if f"Time{t}" in path.name:
+            # if f"Time{t}" in path.name:
             
-                test_path = experiment_path / (path.name + "_crop_df1.tif")
-                if not test_path.is_file():
-                    format_stack(path, experiment_path, df)   
-                elif overwrite:
-                    format_stack(path, experiment_path, df)  
+            test_path = experiment_path / (path.name + "_crop_df1.tif")
+            if not test_path.is_file():
+                format_stack(path, experiment_path, df)   
+            elif overwrite:
+                format_stack(path, experiment_path, df)  
 
 #%% Display -------------------------------------------------------------------
 
-obj_props = []
-for prop in props:
-    obj_props.append((
-        prop.label,
-        prop.centroid,
-        prop.area,
-        prop.intensity_mean,
-        prop.solidity,
-        )) 
-
-import napari
-viewer = napari.Viewer()
-viewer.add_image(stack_norm)
-viewer.add_labels(obj_labels)
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(mtx_mask_3D_low)
+# viewer.add_image(stack_norm)
+# viewer.add_labels(obj_labels_3D_low)
