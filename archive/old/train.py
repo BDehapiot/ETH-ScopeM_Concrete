@@ -7,13 +7,12 @@ from pathlib import Path
 import albumentations as A
 import matplotlib.pyplot as plt
 import segmentation_models as sm
-from functions import preprocess
-from bdtools import extract_patches
 from joblib import Parallel, delayed 
-from skimage.transform import downscale_local_mean
+from bdtools.patch import extract_patches
 
-# Tensorflow
-from tensorflow.keras.optimizers import Adam
+from functions import median_filt
+
+# TensorFlow
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 #%% Inputs --------------------------------------------------------------------
@@ -21,38 +20,34 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 # Paths
 train_path = Path(Path.cwd(), 'data', 'train')
 
-# Prepare
-mask_type = "matrix"
-downscale_factor = 2
-size = 1024 // downscale_factor
+# Patches
+size = 256
 overlap = size // 4
 
-# Augment
-iterations = 200
+# Data augmentation
+np.random.seed(42)
+iterations = 500
 
-# Train
-n_epochs = 500
+# Train model
+mask_type = "matrix"
+validation_split = 0.2
+n_epochs = 100
 batch_size = 8
-patience = 50
-learning_rate = 0.001
-validation_split = 0.2 
 
-#%% Prepare -------------------------------------------------------------------
+#%% Preprocess ----------------------------------------------------------------
 
-def prepare(path):
+def preprocess(path):
     
     # Open image and mask
     img = io.imread(Path(train_path, path.name.replace(f"_mask-{mask_type}", "")))
-    msk = (io.imread(path) > 0).astype("float32")
+    msk = io.imread(path)
     
-    # Downscale data
-    if downscale_factor > 1:
-        img = downscale_local_mean(img, downscale_factor)
-        msk = downscale_local_mean(msk, downscale_factor)
+    # Process image
+    img = median_filt(img, radius=5)
     
-    # Preprocess image
-    img = preprocess(img, 0.01, 99.99, 10 // downscale_factor)
-        
+    # Process mask
+    msk = (msk > 0).astype("float32") 
+    
     # Extract patches
     img_patches = extract_patches(img, size, overlap)
     msk_patches = extract_patches(msk, size, overlap)
@@ -60,7 +55,7 @@ def prepare(path):
     return img_patches, msk_patches
 
 outputs = Parallel(n_jobs=-1)(
-    delayed(prepare)(path)
+    delayed(preprocess)(path)
     for path in list(train_path.glob(f"*{mask_type}*"))
     )
 
@@ -80,16 +75,14 @@ msk_patches = msk_patches[keep, ...]
 
 # # Display 
 # viewer = napari.Viewer()
-# viewer.add_image(img_patches, contrast_limits=(0, 1))
-# viewer.add_image(msk_patches, contrast_limits=(0, 1)) 
+# viewer.add_image(img_patches)
+# viewer.add_image(msk_patches) 
 
-#%% Augment -------------------------------------------------------------------
+#%% Augmentation --------------------------------------------------------------
 
 augment = True if iterations > 0 else False
 
 if augment:
-    
-    np.random.seed(42)
     
     # Define augmentation operations
     operations = A.Compose([
@@ -114,10 +107,10 @@ if augment:
     
     # # Display 
     # viewer = napari.Viewer()
-    # viewer.add_image(img_patches, contrast_limits=(0, 1))
-    # viewer.add_image(msk_patches, contrast_limits=(0, 1)) 
+    # viewer.add_image(img_patches)
+    # viewer.add_image(msk_patches) 
 
-#%% Train ---------------------------------------------------------------------
+#%% Model training ------------------------------------------------------------
 
 # Define & compile model
 model = sm.Unet(
@@ -128,21 +121,21 @@ model = sm.Unet(
     encoder_weights=None,
     )
 model.compile(
-    optimizer=Adam(learning_rate=learning_rate),
+    optimizer='adam',
     loss='binary_crossentropy', 
     metrics=['mse'],
     )
 
 # Checkpoint & callbacks
 model_checkpoint_callback = ModelCheckpoint(
-    filepath=f"model-weights_{mask_type}_p{size:04d}_d{downscale_factor}.h5",
+    filepath=f"model-weights_{mask_type}_{size:04d}.h5",
     save_weights_only=True,
     monitor='val_loss',
     mode='min',
     save_best_only=True
     )
 callbacks = [
-    EarlyStopping(patience=patience, monitor='val_loss'),
+    EarlyStopping(patience=10, monitor='val_loss'),
     model_checkpoint_callback
     ]
 
