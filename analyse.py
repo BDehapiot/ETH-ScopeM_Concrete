@@ -14,11 +14,10 @@ from functions import shift_stack, norm_stack
 
 # Paths
 data_path = Path("D:/local_Concrete/data")
-# experiment = "D1_ICONX_DoS"
-experiment = "D11_ICONX_DoS"
+experiment = "D1_ICONX_DoS"
+# experiment = "D11_ICONX_DoS"
 # experiment = "D12_ICONX_corrosion"
-experiment_path = data_path / experiment
-name = f"{experiment}_Time3_crop_df4"
+name = f"{experiment}_Time2_crop_df4"
 
 # Parameters
 overwrite = False
@@ -27,6 +26,7 @@ df = 4 # downscale factor
 #%% 
 
 # Open data
+experiment_path = data_path / experiment
 stack_norm = io.imread(
     experiment_path / (name + "_norm.tif"))
 obj_labels_3D = io.imread(
@@ -44,20 +44,23 @@ centers  = metadata["centers"]
 
 #%%
 
-stack_voids = stack_norm.copy()
-stack_voids[obj_labels_3D == 0] = 0
-mtx_EDM_3D = shift_stack(mtx_EDM, centers, reverse=True)
+# stack_voids = stack_norm.copy()
+# stack_voids[obj_labels_3D == 0] = 0
+# mtx_EDM_3D = shift_stack(mtx_EDM, centers, reverse=True)
 
-void_EDM, void_int = [], []
-for idx in range(1, np.max(obj_labels_3D)):
-    void_EDM.append(np.nanmean(mtx_EDM_3D[obj_labels_3D == idx]))
-    void_int.append(np.nanmean(stack_voids[obj_labels_3D == idx]))
+# void_EDM, void_int = [], []
+# for idx in range(1, np.max(obj_labels_3D)):
+#     # void_EDM.append(np.nanmean(mtx_EDM_3D[obj_labels_3D == idx]))
+#     # void_int.append(np.nanmean(stack_voids[obj_labels_3D == idx]))
+#     void_EDM.append(np.nanpercentile(mtx_EDM_3D[obj_labels_3D == idx], 1))
+#     void_int.append(np.nanpercentile(stack_voids[obj_labels_3D == idx], 1))
     
-plt.scatter(void_EDM, void_int)
+# plt.scatter(void_EDM, void_int)
 
 #%%
 
-# import napari
-# viewer = napari.Viewer()
-# viewer.add_image(obj_labels_3D > 0)
-# viewer.add_image(stack_EDM)
+import napari
+viewer = napari.Viewer()
+viewer.add_image(stack_norm)
+viewer.add_image(obj_labels_3D > 0)
+
