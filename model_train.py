@@ -25,11 +25,11 @@ train_path = Path(Path.cwd(), 'data', 'train')
 # Prepare
 mask_type = "matrix"
 df = 4
-size = 1024 // df
+size = 2048 // df
 overlap = size // 4
 
 # Augment
-iterations = 200
+iterations = 300
 
 # Train
 n_epochs = 500
@@ -49,7 +49,7 @@ def prepare(path):
     # Normalize image
     img = norm_gcn(img, mask=img != 0)
     img = norm_pct(img, 0.01, 99.99, mask=img != 0)
-        
+    
     # Extract patches
     img_patches = extract_patches(img, size, overlap)
     msk_patches = extract_patches(msk, size, overlap)

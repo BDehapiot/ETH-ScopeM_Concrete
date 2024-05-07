@@ -5,14 +5,19 @@ import pickle
 import numpy as np
 from skimage import io
 from pathlib import Path
+import segmentation_models as sm
 from joblib import Parallel, delayed
 
 # Skimage
 from skimage.filters import median
-from skimage.morphology import disk, ball
+from skimage.morphology import disk
 
 # Scipy
 from scipy.ndimage import shift
+
+# bdtools
+from bdtools.norm import norm_gcn, norm_pct
+from bdtools.patch import extract_patches, merge_patches
 
 #%% Function(s) ---------------------------------------------------------------
 
@@ -47,6 +52,8 @@ def shift_stack(stack, centroids, reverse=False):
         
     return stack
 
+# -----------------------------------------------------------------------------
+
 def norm_stack(stack, med_proj, centroids, radius=1, mask=None):
     
     def filt_median(img):
@@ -66,116 +73,44 @@ def norm_stack(stack, med_proj, centroids, radius=1, mask=None):
         stack *= mask
         
     return stack
-    
-#     return stack_norm
-    
-    #     def _normalize_stack(img, med_proj, centroids, mask=mask):
-    #         centroids = [centroids[0] * -1, centroids[1] * -1]
-    #         med_proj = shift(med_proj, centroids)
-    #         img_norm = np.divide(img, med_proj, where=med_proj!=0)
-    #         if radius > 1:
-    #             img_norm = median(img_norm, footprint=disk(radius))
-    #         if mask is not None:
-    #             mask = shift(mask.astype("uint8"), centroids)
-    #             img_norm *= mask
-    #         return img_norm
-        
-    #     if stack.ndim == 2:
-    #         stack_norm = _normalize_stack(stack, med_proj, centroids, mask=mask)
-        
-    #     if stack.ndim == 3:
-    #         stack_norm = Parallel(n_jobs=-1)(
-    #             delayed(_normalize_stack)(
-    #                 img, med_proj, centroids[z], mask=mask
-    #                 ) 
-    #             for z, img in enumerate(stack)
-    #             )
-    #         stack_norm = np.stack(stack_norm)
-        
-    #     return stack_norm
-
-
-#%%
-
-# t = 0; df = 4
-# data_path = Path("D:/local_Concrete/data")
-# stack_path = data_path / "D1_ICONX_DoS" / f"D1_ICONX_DoS_Time{t}_crop_df{df}.tif"
-# metadata_path = data_path / "D1_ICONX_DoS" / f"D1_ICONX_DoS_Time{t}_metadata_oo.pkl"
-# stack = io.imread(stack_path)
-# with open(metadata_path, 'rb') as file:
-#     metadata = pickle.load(file)
-    
-# idx = metadata["dfs"].index(df)
-# med_proj = metadata["med_projs"][idx]
-# mtx_mask = metadata["mtx_masks"][idx]
-# centroids = metadata["centroidss"][idx]
-    
-# t0 = time.time()
-# print(" - Test :", end='')
-
-# stack_norm = normalize_stack(stack, med_proj, centroids, mask=mtx_mask)
-
-# t1 = time.time()
-# print(f" {(t1-t0):<5.2f}s") 
 
 # -----------------------------------------------------------------------------
 
-# import napari
-# viewer = napari.Viewer()
-# viewer.add_image(stack_norm)
-# viewer.add_image(stack)
-# viewer.add_image(mtx_mask_3D * 255, blending="additive", colormap="bop orange", opacity=0.1)
+def predict(stack, model_path, subset=1000):
+    
+    # Define model
+    model = sm.Unet(
+        'resnet18', # ResNet 18, 34, 50, 101 or 152
+        input_shape=(None, None, 1), 
+        classes=1, 
+        activation='sigmoid', 
+        encoder_weights=None,
+        )
+    
+    # Load weights
+    model.load_weights(model_path)
+    size = int(model_path.name[22:26])
+    overlap = size // 4
 
-#%%
-
-# def normalize_stack(stack, med_proj, centroids, radius=1, mask=None):
+    # Define sub indexes
+    nZ = stack.shape[0]
+    z0s = np.arange(0, nZ, subset)
+    z1s = z0s + subset
+    z1s[z1s > nZ] = nZ
     
-#     def _normalize_stack(img, med_proj, centroids, mask=mask):
-#         centroids = [centroids[0] * -1, centroids[1] * -1]
-#         med_proj = shift(med_proj, centroids)
-#         img_norm = np.divide(img, med_proj, where=med_proj!=0)
-#         if radius > 1:
-#             img_norm = median(img_norm, footprint=disk(radius))
-#         if mask is not None:
-#             mask = shift(mask.astype("uint8"), centroids)
-#             img_norm *= mask
-#         return img_norm
+    # Normalize stack
+    stack = norm_gcn(stack, mask=stack != 0)
+    stack = norm_pct(stack, 0.01, 99.99, mask=stack != 0)
     
-#     if stack.ndim == 2:
-#         stack_norm = _normalize_stack(stack, med_proj, centroids, mask=mask)
-    
-#     if stack.ndim == 3:
-#         stack_norm = Parallel(n_jobs=-1)(
-#             delayed(_normalize_stack)(
-#                 img, med_proj, centroids[z], mask=mask
-#                 ) 
-#             for z, img in enumerate(stack)
-#             )
-#         stack_norm = np.stack(stack_norm)
-    
-#     return stack_norm
-
-# def mask_stack(stack, mask, centroids):
-    
-#     def _mask_array(img, mask, centroids):
-#         centroids = [centroids[0] * -1, centroids[1] * -1]
-#         mask = shift(mask.astype("uint8"), centroids)
-#         img_mask = img * mask
-#         return img_mask
-    
-#     if stack.ndim == 2:
-#         stack_mask = _mask_array(stack, mask, centroids)
-    
-#     if stack.ndim == 3:
-#         stack_mask = Parallel(n_jobs=-1)(
-#             delayed(_mask_array)(
-#                 img, mask, centroids[z],
-#                 ) 
-#             for z, img in enumerate(stack)
-#             )
-#         stack_mask = np.stack(stack_mask)
-    
-#     return stack_mask
-
-
-    
+    # Predict
+    probs = []
+    for z0, z1 in zip(z0s, z1s):
+        tmpStack = stack[z0:z1, ...]
+        patches = extract_patches(tmpStack, size, overlap)
+        patches = np.stack(patches)
+        tmpProbs = model.predict(patches).squeeze()
+        tmpProbs = merge_patches(tmpProbs, tmpStack.shape, overlap)
+        probs.append(tmpProbs)
+    probs = np.concatenate(probs, axis=0)
+        
+    return probs

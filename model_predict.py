@@ -14,19 +14,17 @@ from bdtools.patch import extract_patches, merge_patches
 
 # Paths
 data_path = Path("D:/local_Concrete/data")
-model_name = "model-weights_matrix_p0256_d4.h5"
-stack_name = "D1_ICONX_DoS_Time3_crop_df4_norm.tif"
+model_name = "model-weights_matrix_p0512_d4.h5"
+model_path = Path.cwd() / model_name
+stack_name = "D1_ICONX_DoS_Time2_crop_df4_norm.tif"
 stack_path = list(data_path.glob(f"**/*{stack_name}"))[0]
 
 # Parameters
-df = int(model_name[28])
-size = int(model_name[22:26])
-overlap = size // 4
-sub_size = 100
+subset = 1000
 
 #%% Functions -----------------------------------------------------------------
 
-def predict(stack, model_name, sub_size):
+def predict(stack, model_path, subset=1000):
     
     # Define model
     model = sm.Unet(
@@ -38,12 +36,14 @@ def predict(stack, model_name, sub_size):
         )
     
     # Load weights
-    model.load_weights(Path(Path.cwd(), model_name))
+    model.load_weights(model_path)
+    size = int(model_path.name[22:26])
+    overlap = size // 4
 
     # Define sub indexes
     nZ = stack.shape[0]
-    z0s = np.arange(0, nZ, sub_size)
-    z1s = z0s + sub_size
+    z0s = np.arange(0, nZ, subset)
+    z1s = z0s + subset
     z1s[z1s > nZ] = nZ
     
     # Normalize stack
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     stack = io.imread(stack_path)
     
     # Predict
-    probs = predict(stack, model_name, sub_size)
+    probs = predict(stack, model_path, subset)
 
     # Display 
     viewer = napari.Viewer()
