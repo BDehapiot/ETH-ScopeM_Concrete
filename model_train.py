@@ -25,11 +25,11 @@ train_path = Path(Path.cwd(), 'data', 'train')
 # Prepare
 mask_type = "matrix"
 df = 4
-size = 2048 // df
+size = 1024 // df
 overlap = size // 4
 
 # Augment
-iterations = 300
+iterations = 1000
 
 # Train
 n_epochs = 500
@@ -46,7 +46,7 @@ def prepare(path):
     img = io.imread(Path(train_path, path.name.replace(f"_mask-{mask_type}", "")))
     msk = (io.imread(path) > 0).astype("float32")
        
-    # Normalize image
+    # Prepare images
     img = norm_gcn(img, mask=img != 0)
     img = norm_pct(img, 0.01, 99.99, mask=img != 0)
     
@@ -110,7 +110,7 @@ if augment:
 
 # Define & compile model
 model = sm.Unet(
-    'resnet18', # ResNet 18, 34, 50, 101 or 152 
+    'resnet34', # ResNet 18, 34, 50, 101 or 152 
     input_shape=(None, None, 1), 
     classes=1, 
     activation='sigmoid', 

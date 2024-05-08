@@ -21,6 +21,25 @@ from bdtools.patch import extract_patches, merge_patches
 
 #%% Function(s) ---------------------------------------------------------------
 
+def filt_median(arr, radius):
+    
+    def _filt_median(img):
+        return median(img, footprint=disk(radius))
+    
+    if arr.ndim == 2:
+        arr = _filt_median(arr)
+    
+    if arr.ndim == 3:
+        arr = Parallel(n_jobs=-1)(
+            delayed(_filt_median)(img) 
+            for img in arr
+            )
+        arr = np.stack(arr)
+    
+    return arr
+
+# -----------------------------------------------------------------------------
+
 def shift_stack(stack, centroids, reverse=False):
     
     def shift_img(img, centroid):
@@ -56,14 +75,17 @@ def shift_stack(stack, centroids, reverse=False):
 
 def norm_stack(stack, med_proj, centroids, radius=1, mask=None):
     
-    def filt_median(img):
-        return median(img, footprint=disk(radius))
+    # def filt_median(img):
+    #     return median(img, footprint=disk(radius))
         
+    # if radius > 1:
+    #     stack = Parallel(n_jobs=-1)(
+    #         delayed(filt_median)(img) 
+    #         for img in stack
+    #         )
+    
     if radius > 1:
-        stack = Parallel(n_jobs=-1)(
-            delayed(filt_median)(img) 
-            for img in stack
-            )
+        stack = filt_median(stack, radius)
 
     med_proj = shift_stack(med_proj, centroids, reverse=True)        
     stack = np.divide(stack, med_proj, where=med_proj != 0)
@@ -80,7 +102,7 @@ def predict(stack, model_path, subset=1000):
     
     # Define model
     model = sm.Unet(
-        'resnet18', # ResNet 18, 34, 50, 101 or 152
+        'resnet34', # ResNet 18, 34, 50, 101 or 152
         input_shape=(None, None, 1), 
         classes=1, 
         activation='sigmoid', 

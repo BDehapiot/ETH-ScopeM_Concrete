@@ -10,11 +10,14 @@ import segmentation_models as sm
 from bdtools.norm import norm_gcn, norm_pct
 from bdtools.patch import extract_patches, merge_patches
 
+# Functions 
+from functions import filt_median
+
 #%% Inputs --------------------------------------------------------------------
 
 # Paths
 data_path = Path("D:/local_Concrete/data")
-model_name = "model-weights_matrix_p0512_d4.h5"
+model_name = "model-weights_matrix_p0256_d4.h5"
 model_path = Path.cwd() / model_name
 stack_name = "D1_ICONX_DoS_Time2_crop_df4_norm.tif"
 stack_path = list(data_path.glob(f"**/*{stack_name}"))[0]
@@ -28,7 +31,7 @@ def predict(stack, model_path, subset=1000):
     
     # Define model
     model = sm.Unet(
-        'resnet18', # ResNet 18, 34, 50, 101 or 152
+        'resnet34', # ResNet 18, 34, 50, 101 or 152
         input_shape=(None, None, 1), 
         classes=1, 
         activation='sigmoid', 
@@ -46,7 +49,7 @@ def predict(stack, model_path, subset=1000):
     z1s = z0s + subset
     z1s[z1s > nZ] = nZ
     
-    # Normalize stack
+    # Prepare images
     stack = norm_gcn(stack, mask=stack != 0)
     stack = norm_pct(stack, 0.01, 99.99, mask=stack != 0)
     
@@ -72,6 +75,10 @@ if __name__ == "__main__":
     
     # Predict
     probs = predict(stack, model_path, subset)
+    
+    # Prepare images
+    stack = norm_gcn(stack, mask=stack != 0)
+    stack = norm_pct(stack, 0.01, 99.99, mask=stack != 0)
 
     # Display 
     viewer = napari.Viewer()
