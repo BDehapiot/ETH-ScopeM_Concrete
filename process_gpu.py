@@ -27,7 +27,7 @@ from functions import shift_stack, norm_stack, predict
 #%% Inputs --------------------------------------------------------------------
 
 # Parameters
-overwrite = False
+overwrite = True
 df = 4 # downscale factor
 
 # Paths
@@ -35,23 +35,27 @@ data_path = Path("D:/local_Concrete/data")
 raw_path = Path(data_path, "0-raw")
 model_path = Path.cwd() / f"model-weights_matrix_p0256_d{df}.h5"
 experiments = [
-    "D1_ICONX_DoS",
+    # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
-    # "H9_ICONX_DoS",
+    "H9_ICONX_DoS",
     ]
 
 #%% Function(s) ---------------------------------------------------------------
 
 def process_stack(path, experiment_path, df):
     
-    # global \
-    #     stack, metadata, centroids,\
-    #     stack_shift, stack_norm,\
-    #     mtx_EDM, rod_EDM,\
-    #     mtx_EDM_3D, mtx_EDM_3D_low,\
-    #     obj_mask_3D, obj_labels_3D, obj_labels_3D_low,\
-    #     mtx_EDM_avg, obj_EDM_avg, obj_props
+    global \
+        stack, metadata, centers,\
+        stack_shift, stack_norm,\
+        mtx_mask, rod_mask,\
+        mtx_EDM, rod_EDM,\
+        mtx_EDM_3D, mtx_EDM_3D_low,\
+        obj_df, obj_probs, obj_mask_3D, obj_labels_3D, obj_labels_3D_low,\
+        mtx_EDM_avg, obj_EDM_avg,\
+        out_mask, out_mask_3D_low,\
+        obj_cat,\
+        objects
 
     # Initialize --------------------------------------------------------------
 
@@ -157,7 +161,7 @@ def process_stack(path, experiment_path, df):
     rod_mask = binary_fill_holes(rod_mask)
     rod_mask = binary_dilation(rod_mask, footprint=disk(1)) # Parameter
     mtx_mask = mtx_mask ^ rod_mask
-    mtx_mask = binary_erosion(mtx_mask, footprint=disk(1)) # Parameter
+    # mtx_mask = binary_erosion(mtx_mask, footprint=disk(1)) # Parameter
     
     # Get EDMs
     mtx_EDM = distance_transform_edt(binary_fill_holes(mtx_mask | rod_mask))
@@ -173,12 +177,113 @@ def process_stack(path, experiment_path, df):
     
     t0 = time.time()
 
-    # Predict voids
-    void_probs = predict(stack_norm, model_path, subset=1000)
+    # Predict objects
+    obj_probs = predict(stack_norm, model_path, subset=1000)
     
     t1 = time.time()
     print(f" - Predict : {(t1-t0):<5.2f}s") 
+    
+    # Objects -----------------------------------------------------------------
+    
+    t0 = time.time()
+    print(" - Objects : ", end='')
         
+    def get_object_EDM(idx, obj_labels_3D, mtx_EDM_3D):
+        labels = obj_labels_3D.copy()
+        labels[labels == idx] = 0
+        obj_EDM_3D = distance_transform_edt(1 - labels > 0)
+        obj_EDM_3D[obj_labels_3D == 0] = 0 # Don't know why
+        obj_dist = np.nanmean(obj_EDM_3D[obj_labels_3D == idx])
+        mtx_dist = np.nanmean(mtx_EDM_3D[obj_labels_3D == idx])
+        return obj_dist, mtx_dist
+    
+    # Parameters
+    obj_df = 16 // df # parameter
+        
+    # Object mask and labels
+    obj_mask_3D = (obj_probs > 0.5) # parameter (0.5)
+    obj_mask_3D = remove_small_objects(
+        obj_mask_3D, min_size=1e5 * (1 / df) ** 3) # parameter (1.5e5)
+    obj_mask_3D = clear_border(obj_mask_3D)
+    obj_labels_3D = label(obj_mask_3D)
+    
+    # Get EDM measurments
+    idxs = np.unique(obj_labels_3D)[1:]
+    obj_labels_3D_low = rescale(
+        obj_labels_3D, 1 / obj_df, order=0).astype(int)
+    mtx_EDM_3D_low = rescale(
+        shift_stack(mtx_EDM, centers, reverse=True), 1 / obj_df)
+    outputs = Parallel(n_jobs=-1)(
+            delayed(get_object_EDM)(idx, obj_labels_3D_low, mtx_EDM_3D_low) 
+            for idx in idxs
+            )
+    obj_dist = [data[0] for data in outputs] * obj_df
+    mtx_dist = [data[1] for data in outputs] * obj_df
+    # obj_dist /= np.mean(obj_dist)
+    # mtx_dist /= np.mean(mtx_dist)
+    
+    #%% -------------------------------------------------------------------------
+    
+    obj_df = 16 // df # parameter
+    
+    t0 = time.time()
+    print(" - Test : ", end='')
+    
+    # Get outer vs. inner objects
+    idxs = np.unique(obj_labels_3D)[1:]
+    out_mask = binary_erosion(mtx_mask, footprint=disk(obj_df))
+    # out_mask = binary_fill_holes(out_mask)
+    inn_mask = binary_dilation(rod_mask, footprint=disk(obj_df))
+    
+    out_mask_3D_low = rescale(
+        shift_stack(out_mask, centers, reverse=True), 1 / obj_df, order=0)
+    inn_mask_3D_low = rescale(
+        shift_stack(inn_mask, centers, reverse=True), 1 / obj_df, order=0)
+    cat_mask_3D_low = 1 - out_mask_3D_low + inn_mask_3D_low
+
+    obj_cat = []
+    for idx in idxs:
+        obj_cat.append(cat_mask_3D_low[obj_labels_3D_low == idx])
+        
+    # isOut = []
+    # for idx in idxs:
+    #     if np.min(out_mask_3D_low[obj_labels_3D_low == idx]) == 0:
+    #         isOut.append(1)
+    #         obj_labels_3D_low[obj_labels_3D_low == idx] = 1
+    #     else:
+    #         isOut.append(0) 
+    #         obj_labels_3D_low[obj_labels_3D_low == idx] = 2
+    
+    t1 = time.time()
+    print(f"{(t1-t0):<5.2f}s") 
+    
+    import napari
+    viewer = napari.Viewer()
+    # viewer.add_image(out_mask_3D_low, colormap="green", blending="additive", contrast_limits=(0, 2))
+    # viewer.add_image(inn_mask_3D_low, colormap="magenta", blending="additive", contrast_limits=(0, 2))
+    viewer.add_image(cat_mask_3D_low)
+    # viewer.add_labels(obj_labels_3D_low)
+    # viewer.add_image(out_mask1, colormap="green", blending="additive")
+    # viewer.add_image(out_mask2, colormap="magenta", blending="additive")
+    
+    #%% -------------------------------------------------------------------------
+    
+    # Get object properties
+    objects = []
+    props = regionprops(obj_labels_3D)
+    for i, prop in enumerate(props):
+        objects.append({
+            "label"    : prop.label,
+            "centroid" : prop.centroid,
+            "area"     : prop.area,
+            "solidity" : prop.solidity,
+            "obj_dist" : obj_dist[i],
+            "mtx_dist" : mtx_dist[i],
+            })
+            
+    t1 = time.time()
+    print(f"{(t1-t0):<5.2f}s") 
+    
     # Save --------------------------------------------------------------------
     
     t0 = time.time()
@@ -195,7 +300,11 @@ def process_stack(path, experiment_path, df):
         )
     io.imsave(
         experiment_path / (name + f"_crop_df{df}_probs.tif"), 
-        void_probs.astype("float32"), check_contrast=False
+        obj_probs.astype("float32"), check_contrast=False
+        )
+    io.imsave(
+        experiment_path / (name + f"_crop_df{df}_labels.tif"), 
+        obj_labels_3D.astype("uint16"), check_contrast=False
         )
         
     # Metadata
@@ -209,6 +318,7 @@ def process_stack(path, experiment_path, df):
         "rod_mask" : rod_mask,
         "mtx_EDM"  : mtx_EDM,
         "rod_EDM"  : rod_EDM,
+        "objects"  : objects,
         }
     
     with open(metadata_path, 'wb') as file:
@@ -224,16 +334,19 @@ if __name__ == "__main__":
         experiment_path = data_path / experiment
         experiment_path.mkdir(parents=True, exist_ok=True)
         for path in raw_path.glob(f"*{experiment}*"):
-            test_path = experiment_path / (path.name + f"_crop_df{df}.tif")
-            if not test_path.is_file():
-                process_stack(path, experiment_path, df)   
-            elif overwrite:
-                process_stack(path, experiment_path, df)  
+            if "Time0" in path.name:
+                test_path = experiment_path / (path.name + f"_crop_df{df}.tif")
+                if not test_path.is_file():
+                    process_stack(path, experiment_path, df)   
+                elif overwrite:
+                    process_stack(path, experiment_path, df)  
 
 #%% Display -------------------------------------------------------------------
 
-# import napari
-# viewer = napari.Viewer()
-# viewer.add_image(mtx_mask_3D_low)
-# viewer.add_image(stack_norm)
-# viewer.add_labels(obj_labels_3D_low)
+import napari
+viewer = napari.Viewer()
+viewer.add_image(out_mask_3D_low)
+viewer.add_labels(obj_labels_3D_low)
+# viewer.add_image(mtx_EDM_3D_low)
+# viewer.add_image(obj_mask_3D)
+# viewer.add_labels(obj_labels_3D)
