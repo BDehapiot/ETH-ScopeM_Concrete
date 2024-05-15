@@ -40,32 +40,32 @@ def filt_median(arr, radius):
 
 # -----------------------------------------------------------------------------
 
-def shift_stack(stack, centroids, reverse=False):
+def shift_stack(stack, centers, reverse=False):
     
-    def shift_img(img, centroid):
+    def shift_img(img, center):
         if reverse:         
-            centroid = [- centroid[0], - centroid[1]]
+            center = [- center[0], - center[1]]
         if img.dtype == bool:
             img = img.astype("uint8")
-        return shift(img, centroid)
+        return shift(img, center)
     
-    # Shift 1 image / 1 centroid
-    if stack.ndim == 2 and len(centroids) == 1:
-        stack = shift_img(stack, centroids)
+    # Shift 1 image / 1 center
+    if stack.ndim == 2 and len(centers) == 1:
+        stack = shift_img(stack, centers)
 
-    # Shift 1 image / n centroids
-    elif stack.ndim == 2 and len(centroids) > 1:
+    # Shift 1 image / n centers
+    elif stack.ndim == 2 and len(centers) > 1:
         stack = Parallel(n_jobs=-1)(
-            delayed(shift_img)(stack, centroid) 
-            for centroid in centroids
+            delayed(shift_img)(stack, center) 
+            for center in centers
             )
         stack = np.stack(stack)
         
-    # Shift n images / n centroids
+    # Shift n images / n centers
     elif stack.ndim == 3:
         stack = Parallel(n_jobs=-1)(
-            delayed(shift_img)(img, centroid) 
-            for img, centroid in zip(stack, centroids)
+            delayed(shift_img)(img, center) 
+            for img, center in zip(stack, centers)
             )
         stack = np.stack(stack)
         
@@ -73,7 +73,7 @@ def shift_stack(stack, centroids, reverse=False):
 
 # -----------------------------------------------------------------------------
 
-def norm_stack(stack, med_proj, centroids, radius=1, mask=None):
+def norm_stack(stack, med_proj, centers, radius=1, mask=None):
     
     # def filt_median(img):
     #     return median(img, footprint=disk(radius))
@@ -87,11 +87,11 @@ def norm_stack(stack, med_proj, centroids, radius=1, mask=None):
     if radius > 1:
         stack = filt_median(stack, radius)
 
-    med_proj = shift_stack(med_proj, centroids, reverse=True)        
+    med_proj = shift_stack(med_proj, centers, reverse=True)        
     stack = np.divide(stack, med_proj, where=med_proj != 0)
 
     if mask is not None:
-        mask = shift_stack(mask, centroids, reverse=True)
+        mask = shift_stack(mask, centers, reverse=True)
         stack *= mask
         
     return stack

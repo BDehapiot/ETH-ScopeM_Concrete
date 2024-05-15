@@ -16,10 +16,10 @@ from scipy.ndimage import affine_transform
 # Paths
 data_path = Path("D:/local_Concrete/data")
 experiments = [
-    "D1_ICONX_DoS",
+    # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
-    # "H9_ICONX_DoS",
+    "H9_ICONX_DoS",
     ]
 
 # Parameters
@@ -206,7 +206,7 @@ if __name__ == "__main__":
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
                 
         for i in range(1, len(paths)):
-            if i == 3:
+            if i == 2:
                 register_stacks(paths[0], paths[i])
         
         # stack_reg = Parallel(n_jobs=-1)(

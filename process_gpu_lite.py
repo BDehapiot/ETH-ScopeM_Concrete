@@ -27,7 +27,7 @@ from functions import shift_stack, norm_stack, predict
 #%% Inputs --------------------------------------------------------------------
 
 # Parameters
-overwrite = False
+overwrite = True
 df = 4 # downscale factor
 
 # Paths
@@ -35,9 +35,9 @@ data_path = Path("D:/local_Concrete/data")
 raw_path = Path(data_path, "0-raw")
 model_path = Path.cwd() / f"model-weights_matrix_p0256_d{df}.h5"
 experiments = [
-    "D1_ICONX_DoS",
-    "D11_ICONX_DoS",
-    "D12_ICONX_corrosion", 
+    # "D1_ICONX_DoS",
+    # "D11_ICONX_DoS",
+    # "D12_ICONX_corrosion", 
     "H9_ICONX_DoS",
     ]
 
@@ -183,73 +183,9 @@ def process_stack(path, experiment_path, df):
     t1 = time.time()
     print(f" - Predict : {(t1-t0):<5.2f}s") 
     
-    # Objects -----------------------------------------------------------------
+    # Segment -----------------------------------------------------------------
     
-    t0 = time.time()
-    print(" - Objects : ", end='')
-        
-    def get_object_EDM(idx, obj_labels_3D, mtx_EDM_3D, cat_mask_3D):
-        labels = obj_labels_3D.copy()
-        labels[labels == idx] = 0
-        obj_EDM_3D = distance_transform_edt(1 - labels > 0)
-        obj_EDM_3D[obj_labels_3D == 0] = 0 # Don't know why
-        obj_dist = np.nanmean(obj_EDM_3D[obj_labels_3D == idx])
-        mtx_dist = np.nanmean(mtx_EDM_3D[obj_labels_3D == idx])
-        category = np.max(cat_mask_3D_low[obj_labels_3D == idx])
-        return obj_dist, mtx_dist, category
     
-    # Parameters
-    obj_df = 16 // df # parameter
-    
-    # Object mask and labels
-    obj_mask_3D = obj_probs > 0.5 # parameter (0.5)
-    obj_mask_3D = remove_small_objects(
-        obj_mask_3D, min_size=1e5 * (1 / df) ** 3) # parameter (1.5e5)
-    obj_mask_3D = clear_border(obj_mask_3D)
-    obj_labels_3D = label(obj_mask_3D)
-
-    # Category masks
-    cat_mask1 = binary_erosion(mtx_mask, footprint=disk(obj_df))
-    cat_mask2 = binary_dilation(rod_mask, footprint=disk(obj_df))
-    
-    # Downscale data
-    obj_labels_3D_low = rescale(
-        obj_labels_3D, 1 / obj_df, order=0).astype(int)
-    mtx_EDM_3D_low = rescale(
-        shift_stack(mtx_EDM, centers, reverse=True), 1 / obj_df)
-    cat_mask1_3D_low = rescale(
-        shift_stack(cat_mask1, centers, reverse=True), 1 / obj_df, order=0)
-    cat_mask2_3D_low = rescale(
-        shift_stack(cat_mask2, centers, reverse=True), 1 / obj_df, order=0)
-    cat_mask_3D_low = 1 - cat_mask1_3D_low + cat_mask2_3D_low
-
-    # Get object measurments
-    idxs = np.unique(obj_labels_3D)[1:]
-    outputs = Parallel(n_jobs=-1)(
-            delayed(get_object_EDM)(
-                idx, obj_labels_3D_low, mtx_EDM_3D_low, cat_mask_3D_low) 
-            for idx in idxs
-            )
-    obj_dist = [data[0] for data in outputs] * obj_df
-    mtx_dist = [data[1] for data in outputs] * obj_df
-    category = [data[2] for data in outputs]    
-
-    # Get object properties
-    objects = []
-    props = regionprops(obj_labels_3D)
-    for i, prop in enumerate(props):
-        objects.append({
-            "label"    : prop.label,
-            "centroid" : prop.centroid,
-            "area"     : prop.area,
-            "solidity" : prop.solidity,
-            "obj_dist" : obj_dist[i],
-            "mtx_dist" : mtx_dist[i],
-            "category" : category[i],
-            })
-            
-    t1 = time.time()
-    print(f"{(t1-t0):<5.2f}s") 
     
     # Save --------------------------------------------------------------------
     
@@ -269,10 +205,6 @@ def process_stack(path, experiment_path, df):
         experiment_path / (name + f"_crop_df{df}_probs.tif"), 
         obj_probs.astype("float32"), check_contrast=False
         )
-    io.imsave(
-        experiment_path / (name + f"_crop_df{df}_labels.tif"), 
-        obj_labels_3D.astype("uint16"), check_contrast=False
-        )
         
     # Metadata
     metadata_path = experiment_path / (name + f"_crop_df{df}_metadata.pkl") 
@@ -285,7 +217,6 @@ def process_stack(path, experiment_path, df):
         "rod_mask" : rod_mask,
         "mtx_EDM"  : mtx_EDM,
         "rod_EDM"  : rod_EDM,
-        "objects"  : objects,
         }
     
     with open(metadata_path, 'wb') as file:

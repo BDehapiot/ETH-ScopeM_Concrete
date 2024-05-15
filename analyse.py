@@ -16,7 +16,9 @@ from skimage.morphology import (
     )
 
 # Scipy
-from scipy.ndimage import binary_fill_holes
+from scipy.signal import find_peaks, peak_prominences, peak_widths
+from scipy.ndimage import binary_fill_holes, gaussian_filter1d 
+from scipy import stats
 
 # Functions
 from functions import filt_median, shift_stack, norm_stack
@@ -29,7 +31,7 @@ experiment = "D1_ICONX_DoS"
 # experiment = "D11_ICONX_DoS" 
 # experiment = "D12_ICONX_corrosion"
 # experiment = "H9_ICONX_DoS"
-name = f"{experiment}_Time1_crop_df4"
+name = f"{experiment}_Time6_crop_df4"
 
 # Parameters
 overwrite = False
@@ -39,191 +41,194 @@ df = 4 # downscale factor
 
 # Open data
 experiment_path = data_path / experiment
+stack = io.imread(experiment_path / (name + ".tif"))
 stack_norm = io.imread(experiment_path / (name + "_norm.tif"))
-void_probs = io.imread(experiment_path / (name + "_probs.tif"))
+obj_probs = io.imread(experiment_path / (name + "_probs.tif"))
 
 # Open metadata
 metadata_path = experiment_path / (name + "_metadata.pkl") 
 with open(metadata_path, 'rb') as file:
     metadata = pickle.load(file)
-rod_mask = metadata["rod_mask"]    
+centers = metadata["centers"]
+med_proj = metadata["med_proj"]
 mtx_mask = metadata["mtx_mask"]
 mtx_EDM = metadata["mtx_EDM"]
-centers = metadata["centers"]
 
 #%%
 
-# Objects -----------------------------------------------------------------
+def get_void_mask(stack_norm, mtx_EDM, df):
+    
+    global \
+        y0, obj_EDM, obj_pcl
+        
+    # Format data
+    stack_norm = filt_median(stack_norm, 8 // df) # Parameter (8)
+    obj_mask = obj_probs > 0.5
+    obj_mask = remove_small_objects(obj_mask, min_size=256 // df) # Parameter (256)
+    obj_mask = binary_erosion(obj_mask, footprint=ball(12 // df)) # Parameter (12)
+    obj_labels = label(obj_mask)
+    mtx_EDM_3D = shift_stack(mtx_EDM, centers, reverse=True)
+    
+    # Measure object EDM & percentile low
+    obj_EDM, obj_pcl = [], []
+    rvl_lab = (obj_labels[obj_labels > 0]).ravel()
+    rvl_EDM = (mtx_EDM_3D[obj_labels > 0]).ravel()
+    rvl_int = (stack_norm[obj_labels > 0]).ravel()
+    for idx in range(1, np.max(obj_labels)):
+        obj_EDM.append(np.mean(rvl_EDM[rvl_lab == idx]))
+        obj_pcl.append(np.percentile(rvl_int[rvl_lab == idx], 5)) # Parameter (5)
+    obj_EDM = np.stack(obj_EDM)
+    obj_pcl = np.stack(obj_pcl)
+    
+    # Find reference points & fit parameters
+    maxEDM = np.max(obj_EDM)
+    x0 = maxEDM * 0.1 # Parameter (0.1)
+    x1 = maxEDM - x0
+    y0 = np.percentile(obj_pcl[obj_EDM < x0], 25) # Parameter (25)
+    y1 = np.percentile(obj_pcl[obj_EDM > x1], 25) # Parameter (25)
+    a = (y1 - y0) / (x1 - x0)
+    b = y0 - a * x0
+    
+    # Find threshold (void vs. liquide)
+    obj_pcl -= (a * obj_EDM + b)
+    
+    # # Correct stack_norm
+    # obj_mask = obj_probs > 0.5
+    # obj_mask = remove_small_objects(obj_mask, min_size=64)
+    # obj_mask = binary_erosion(obj_mask, footprint=ball(1))
+    # mtx_EDM_3D = (a * mtx_EDM_3D + b) - y0
+    # mtx_EDM_3D[obj_mask == 0] = 0
+    # stack_norm = stack_norm - mtx_EDM_3D
+    
+    return
 
 t0 = time.time()
-print(" - Objects : ", end='')
-    
-def get_object_EDM(idx, obj_labels_3D, mtx_EDM_3D):
-    labels = obj_labels_3D.copy()
-    labels[labels == idx] = 0
-    obj_EDM_3D = distance_transform_edt(1 - labels > 0)
-    obj_EDM_3D[obj_labels_3D == 0] = 0 # Don't know why
-    obj_dist = np.nanmean(obj_EDM_3D[obj_labels_3D == idx])
-    mtx_dist = np.nanmean(mtx_EDM_3D[obj_labels_3D == idx])
-    return obj_dist, mtx_dist
+print(" - Test : ", end='')
 
-# Parameters
-obj_df = 16 // df # parameter
+get_void_mask(stack_norm, mtx_EDM, df)
 
-# Normalize stack
-stack_norm = norm_stack(
-    stack, med_proj, centers, radius=obj_df,  mask=mtx_mask)
-
-# Object mask and labels
-obj_mask_3D = (stack_norm < 0.8) & (stack_norm > 0) # parameter (0.8)
-obj_mask_3D = remove_small_objects(
-    obj_mask_3D, min_size=1e5 * (1 / df) ** 3) # parameter (2.5e5)
-obj_mask_3D = clear_border(obj_mask_3D)
-obj_labels_3D = label(obj_mask_3D)
-
-# Get EDM measurments
-idxs = np.unique(obj_labels_3D)[1:]
-obj_labels_3D_low = rescale(
-    obj_labels_3D, 1 / obj_df, order=0).astype(int)
-mtx_EDM_3D_low = rescale(
-    shift_stack(mtx_EDM, centers, reverse=True), 1 / obj_df)
-outputs = Parallel(n_jobs=-1)(
-        delayed(get_object_EDM)(idx, obj_labels_3D_low, mtx_EDM_3D_low) 
-        for idx in idxs
-        )
-obj_dist = [data[0] for data in outputs] * obj_df
-mtx_dist = [data[1] for data in outputs] * obj_df
-# obj_dist /= np.mean(obj_dist)
-# mtx_dist /= np.mean(mtx_dist)
-
-# Get object properties
-objects = []
-props = regionprops(obj_labels_3D)
-for i, prop in enumerate(props):
-    objects.append({
-        "label"    : prop.label,
-        "centroid" : prop.centroid,
-        "area"     : prop.area,
-        "solidity" : prop.solidity,
-        "obj_dist" : obj_dist[i],
-        "mtx_dist" : mtx_dist[i],
-        })
-        
 t1 = time.time()
 print(f"{(t1-t0):<5.2f}s") 
+
+plt.scatter(obj_EDM, obj_pcl)
+plt.show()
+
+plt.hist(obj_pcl, bins=100)
+plt.show()
 
 #%%
 
-# t0 = time.time()
-# print(" - Void masks : ", end='')
+# Intensity distribution
+minPcl = np.min(obj_pcl)
+maxPcl = np.max(obj_pcl)
+hist, bins = np.histogram(obj_pcl, bins=100, range=(minPcl, maxPcl))   
+hist = gaussian_filter1d(hist, sigma=2)
+peaks, _ = find_peaks(hist, distance=30)
+_, _, lefts, rights = peak_widths(hist, peaks, rel_height=0.5)
 
-# # Get void mask & labels
-# stack_norm = filt_median(stack_norm, 2)
-# void_mask = void_probs > 0.5
-# void_mask = remove_small_objects(void_mask, min_size=64)
-# void_labels = label(void_mask)
-# void_labels_r = (void_labels[void_labels > 0]).ravel()
+bins = bins[1:] 
+ints = bins[peaks]
+idx = np.argmin(ints)
+center = ints[idx]
+right = bins[rights[idx]]
 
-# # Detect outer vs. inner voids
-# tmp_mask = binary_erosion(mtx_mask, footprint=disk(2))
-# tmp_mask_3D = shift_stack(tmp_mask, centers, reverse=True)
-# tmp_mask_3D_r = (tmp_mask_3D[void_labels > 0]).ravel()
-# iVoid_labels = void_labels.copy()
+# peaks_int = bins[peaks]
+# lefts_int = bins[lefts]
+# rghts_int = bins[rghts]
 
-# for idx in range(1, np.max(void_labels)):
-#     if np.min(tmp_mask_3D_r[void_labels_r == idx]) == 0:
-#         iVoid_labels[iVoid_labels == idx] = 0
-        
-# # Display
-# viewer = napari.Viewer()
-# viewer.add_labels(iVoid_labels)
 
-# # Detect peripheral voids (connected to the exterior)
-# tMtx_mask = binary_erosion(mtx_mask, footprint=disk(2))
-# tMtx_mask = binary_fill_holes(tMtx_mask)
-# tMtx_mask_3D = shift_stack(tMtx_mask, centers, reverse=True)
-# rvl_mask = (tMtx_mask_3D[void_labels > 0]).ravel()
-# tVoid_labels = void_labels.copy()
-# for idx in range(1, np.max(void_labels)):
-#     if np.min(rvl_mask[rvl_lab == idx]) == 0:
-#         tVoid_labels[tVoid_labels == idx] = 0
-# pVoid_labels = void_labels.copy()
-# pVoid_labels[tVoid_labels != 0] = 0
+# # if len(pks) == 1:
+    
 
-# # Detect rod voids (connected to the rod)
-# tRod_mask = binary_dilation(rod_mask, footprint=disk(2))
-# tRod_mask_3D = shift_stack(tRod_mask, centers, reverse=True)   
-# rvl_mask = (tRod_mask_3D[void_labels > 0]).ravel()     
-# tVoid_labels = void_labels.copy()
-# for idx in range(1, np.max(void_labels)):
-#     if np.max(rvl_mask[rvl_lab == idx]) != 0:
-#         tVoid_labels[tVoid_labels == idx] = 0
-# rVoid_labels = void_labels.copy()
-# rVoid_labels[tVoid_labels != 0] = 0
+# plt.plot(np.linspace(minPcl, maxPcl, num=100), hist)
+# for pk, left, right in zip(pks, lefts, rights):
+#     plt.axvline(x=bins[pk], color='r', linestyle='--', label='Peak')
+#     plt.axvline(x=bins[int(left)], color='b', linestyle='--', label='Peak')
+#     plt.axvline(x=bins[int(right)], color='g', linestyle='--', label='Peak')
 
-# # Detect internal voids
-# iVoid_labels = void_labels
-# iVoid_labels[pVoid_labels != 0] = 0
-# iVoid_labels[rVoid_labels != 0] = 0
-
-t1 = time.time()
-print(f"{(t1-t0):<5.2f}s") 
-
-# # Display
-# viewer = napari.Viewer()
-# viewer.add_labels(iVoid_labels)
-# viewer.add_labels(pVoid_labels)
-# viewer.add_labels(rVoid_labels)
-
-#%% 
+#%%
 
 # t0 = time.time()
 # print(" - Analyse : ", end='')
 
+# # Prepare data
+# stack_norm = filt_median(stack_norm, 2)
+# obj_mask = obj_probs > 0.5
+# obj_mask = remove_small_objects(obj_mask, min_size=64)
+# obj_mask = binary_erosion(obj_mask, footprint=ball(3))
+# obj_labels = label(obj_mask)
+# mtx_EDM_3D = shift_stack(mtx_EDM, centers, reverse=True)
+
 # # Ravel data
-# rvl_lab = (void_labels[void_labels > 0]).ravel()
-# rvl_EDM = ( mtx_EDM_3D[void_labels > 0]).ravel()
-# rvl_int = ( stack_norm[void_labels > 0]).ravel()
+# rvl_lab = (obj_labels[obj_labels > 0]).ravel()
+# rvl_EDM = (mtx_EDM_3D[obj_labels > 0]).ravel()
+# rvl_int = (stack_norm[obj_labels > 0]).ravel()
 
 # # Measure
-# void_EDM, void_avg, void_std, void_pcl, void_pch = [], [], [], [], []
-# for idx in range(1, np.max(void_labels)):
-#     void_EDM.append(np.mean(rvl_EDM[rvl_lab == idx]))
-#     void_avg.append(np.mean(rvl_int[rvl_lab == idx]))
-#     void_std.append(np.std(rvl_int[rvl_lab == idx]))
-#     void_pcl.append(np.percentile(rvl_int[rvl_lab == idx], 5))
-#     void_pch.append(np.percentile(rvl_int[rvl_lab == idx], 95))
-# void_EDM = np.stack(void_EDM)
-# void_avg = np.stack(void_avg)
-# void_std = np.stack(void_std)
-# void_pcl = np.stack(void_pcl)
-# void_pch = np.stack(void_pch)
-   
-# # ---
-
-# # lowEDM  = np.percentile(void_EDM, 20)
-# # highEDM = np.percentile(void_EDM, 80)
-# # lowIdx  = np.argwhere(void_EDM < lowEDM)
-# # highIdx = np.argwhere(void_EDM > highEDM)
-# # lowInt  = np.mean(void_pcl[lowIdx])
-# # highInt = np.mean(void_pcl[highIdx])
+# obj_EDM, obj_pcl, obj_pch = [], [], []
+# for idx in range(1, np.max(obj_labels)):
+#     obj_EDM.append(np.mean(rvl_EDM[rvl_lab == idx]))
+#     obj_pcl.append(np.percentile(rvl_int[rvl_lab == idx], 5))
+#     obj_pch.append(np.percentile(rvl_int[rvl_lab == idx], 95))
+# obj_EDM = np.stack(obj_EDM)
+# obj_pcl = np.stack(obj_pcl)
+# obj_pch = np.stack(obj_pch)
 
 # t1 = time.time()
 # print(f"{(t1-t0):<5.2f}s") 
 
-#%%
+#%% 
 
-# xData = void_EDM 
-# yData = void_pcl
-# zData = void_pch - void_pcl 
+# xData = obj_EDM 
+# yData = obj_pcl
+# zData = obj_pch
 
-# normalize = plt.Normalize(zData.min(), zData.max())
-# plt.scatter(xData, yData, c=zData, cmap='plasma', norm=normalize, s=10)
-# plt.ylim([0.4, 0.9])
+# # Find reference points
+# x0 = 10 # Parameter
+# x1 = np.max(obj_EDM) - x0
+# y0 = np.percentile(obj_pcl[obj_EDM < x0], 25) # Parameter
+# y1 = np.percentile(obj_pcl[obj_EDM > x1], 25) # Parameter
+
+# # Fit
+# a = (y1 - y0) / (x1 - x0)
+# b = y0 - a * x0
+# xFit = np.arange(np.min(obj_EDM), np.max(obj_EDM))
+# yFit = a * xFit + b
+# yCorr = (a * xData + b) - y0
+
+# # Plot
+# plt.scatter(xData, yData, s=5)
+# plt.plot(xFit, yFit, color='red')
 # plt.show()
 
-# plt.scatter(void_EDM, void_pcl, s=2)
-# plt.scatter(void_EDM, void_pch, color="red", s=2)
-# plt.ylim([0.4, 1.0])
+# # Plot
+# plt.scatter(xData, yData - yCorr, s=5)
+# plt.show()
+
+# plt.hist(yData - yCorr, bins=100)
+# plt.show()
 
 #%%
+
+# obj_mask = obj_probs > 0.5
+# obj_mask = remove_small_objects(obj_mask, min_size=64)
+# obj_mask = binary_erosion(obj_mask, footprint=ball(1))
+# mtx_EDM_3D_corr = (a * mtx_EDM_3D + b) - y0
+# mtx_EDM_3D_corr[obj_mask == 0] = 0
+# stack_norm_corr = stack_norm - mtx_EDM_3D_corr
+
+# void_mask = stack_norm_corr.copy()
+# void_mask[obj_mask == 0] = 0
+# void_mask = void_mask < 0.625
+# void_mask[obj_mask == 0] = 0
+
+# liqu_mask = stack_norm_corr.copy()
+# liqu_mask[obj_mask == 0] = 0
+# liqu_mask = liqu_mask > 0.625
+# liqu_mask[obj_mask == 0] = 0
+
+# viewer = napari.Viewer()
+# viewer.add_image(stack_norm_corr, opacity=0.5)
+# viewer.add_image(void_mask, blending="additive", colormap="bop orange")
+# viewer.add_image(liqu_mask, blending="additive", colormap="bop blue")
+
