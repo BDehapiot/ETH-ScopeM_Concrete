@@ -31,7 +31,7 @@ experiment = "D1_ICONX_DoS"
 # experiment = "D11_ICONX_DoS" 
 # experiment = "D12_ICONX_corrosion"
 # experiment = "H9_ICONX_DoS"
-name = f"{experiment}_Time6_crop_df4"
+name = f"{experiment}_Time7_crop_df4"
 
 # Parameters
 overwrite = False
@@ -59,7 +59,7 @@ mtx_EDM = metadata["mtx_EDM"]
 def get_void_mask(stack_norm, mtx_EDM, df):
     
     global \
-        y0, obj_EDM, obj_pcl
+        y0, obj_EDM, obj_pcl, obj_mask, stack_norm_corr
         
     # Format data
     stack_norm = filt_median(stack_norm, 8 // df) # Parameter (8)
@@ -91,14 +91,21 @@ def get_void_mask(stack_norm, mtx_EDM, df):
     
     # Find threshold (void vs. liquide)
     obj_pcl -= (a * obj_EDM + b)
-    
-    # # Correct stack_norm
-    # obj_mask = obj_probs > 0.5
-    # obj_mask = remove_small_objects(obj_mask, min_size=64)
-    # obj_mask = binary_erosion(obj_mask, footprint=ball(1))
-    # mtx_EDM_3D = (a * mtx_EDM_3D + b) - y0
-    # mtx_EDM_3D[obj_mask == 0] = 0
-    # stack_norm = stack_norm - mtx_EDM_3D
+    # minPcl, maxPcl = np.min(obj_pcl), np.max(obj_pcl)
+    # hist, bins = np.histogram(obj_pcl, bins=100, range=(minPcl, maxPcl))   
+    # hist = gaussian_filter1d(hist, sigma=2)
+    # peaks, _ = find_peaks(hist, distance=33)
+    # _, _, lws, rws = peak_widths(hist, peaks, rel_height=0.5)
+    # idx = np.argmin(peaks)
+    # thresh = rws[idx] + (rws[idx] - peaks[idx])
+
+    # Correct stack_norm
+    obj_mask = obj_probs > 0.5
+    obj_mask = remove_small_objects(obj_mask, min_size=256 // df) # Parameter (256)
+    obj_mask = binary_erosion(obj_mask, footprint=ball(8 // df)) # Parameter (8)
+    mtx_EDM_3D = (a * mtx_EDM_3D + b) - y0
+    mtx_EDM_3D[obj_mask == 0] = 0
+    stack_norm_corr = stack_norm - mtx_EDM_3D
     
     return
 
@@ -110,41 +117,65 @@ get_void_mask(stack_norm, mtx_EDM, df)
 t1 = time.time()
 print(f"{(t1-t0):<5.2f}s") 
 
-plt.scatter(obj_EDM, obj_pcl)
-plt.show()
+# plt.scatter(obj_EDM, obj_pcl)
+# plt.show()
 
-plt.hist(obj_pcl, bins=100)
-plt.show()
+# plt.hist(obj_pcl, bins=100)
+# plt.show()
 
 #%%
 
-# Intensity distribution
-minPcl = np.min(obj_pcl)
-maxPcl = np.max(obj_pcl)
+# Find threshold (void vs. liquide)
+minPcl, maxPcl = np.min(obj_pcl), np.max(obj_pcl)
 hist, bins = np.histogram(obj_pcl, bins=100, range=(minPcl, maxPcl))   
-hist = gaussian_filter1d(hist, sigma=2)
-peaks, _ = find_peaks(hist, distance=30)
-_, _, lefts, rights = peak_widths(hist, peaks, rel_height=0.5)
+hist = gaussian_filter1d(hist, sigma=2) # Parameter
+peaks, _ = find_peaks(hist, distance=33) # Parameter
+_, _, lws, rws = peak_widths(hist, peaks, rel_height=0.5) # Parameter
+idx = np.argmin(peaks)
+thresh = rws[idx] + (rws[idx] - peaks[idx])
+thresh_val = bins[int(thresh) + 1] + y0
+thresh_val *= 1.05 # Parameter 
+print(thresh_val)
 
-bins = bins[1:] 
-ints = bins[peaks]
-idx = np.argmin(ints)
-center = ints[idx]
-right = bins[rights[idx]]
+plt.plot(hist)
+plt.axvline(x=peaks[idx])
+plt.axvline(x=rws[idx])
+plt.axvline(x=thresh, color="red")
 
-# peaks_int = bins[peaks]
-# lefts_int = bins[lefts]
-# rghts_int = bins[rghts]
+# -----------------------------------------------------------------------------
 
+from skimage.morphology import binary_opening
 
-# # if len(pks) == 1:
-    
+void_mask = stack_norm_corr.copy()
+void_mask[obj_mask == 0] = 0
+void_mask = void_mask < thresh_val
+void_mask[obj_mask == 0] = 0
 
-# plt.plot(np.linspace(minPcl, maxPcl, num=100), hist)
-# for pk, left, right in zip(pks, lefts, rights):
-#     plt.axvline(x=bins[pk], color='r', linestyle='--', label='Peak')
-#     plt.axvline(x=bins[int(left)], color='b', linestyle='--', label='Peak')
-#     plt.axvline(x=bins[int(right)], color='g', linestyle='--', label='Peak')
+liqu_mask = stack_norm_corr.copy()
+liqu_mask[obj_mask == 0] = 0
+liqu_mask = liqu_mask > thresh_val
+liqu_mask[obj_mask == 0] = 0
+
+# liqu_mask = binary_opening(liqu_mask, footprint=ball(1))
+
+viewer = napari.Viewer()
+viewer.add_image(stack_norm_corr, opacity=0.75)
+viewer.add_image(
+    void_mask, 
+    opacity=0.5,
+    blending="additive", 
+    rendering="attenuated_mip",
+    # attenuation=0.5,
+    colormap="bop orange"
+    )
+viewer.add_image(
+    liqu_mask, 
+    opacity=0.5,
+    blending="additive", 
+    rendering="attenuated_mip", 
+    # attenuation=0.5,
+    colormap="bop blue"
+    )
 
 #%%
 
