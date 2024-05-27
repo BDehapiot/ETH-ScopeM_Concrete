@@ -74,16 +74,7 @@ def shift_stack(stack, centers, reverse=False):
 # -----------------------------------------------------------------------------
 
 def norm_stack(stack, med_proj, centers, radius=1, mask=None):
-    
-    # def filt_median(img):
-    #     return median(img, footprint=disk(radius))
-        
-    # if radius > 1:
-    #     stack = Parallel(n_jobs=-1)(
-    #         delayed(filt_median)(img) 
-    #         for img in stack
-    #         )
-    
+       
     if radius > 1:
         stack = filt_median(stack, radius)
 

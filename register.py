@@ -16,10 +16,10 @@ from scipy.ndimage import affine_transform
 # Paths
 data_path = Path("D:/local_Concrete/data")
 experiments = [
-    # "D1_ICONX_DoS",
+    "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
-    "H9_ICONX_DoS",
+    # "H9_ICONX_DoS",
     ]
 
 # Parameters
@@ -124,7 +124,7 @@ def register_stacks(path_ref, path_reg):
     for idx_ref, test in enumerate(tests):
         idx_reg = np.argmin(test)
         score = np.min(test)
-        if score < 0.2: # parameter
+        if score < 0.2: # parameter (0.2)
             pairs.append((idx_ref, idx_reg, score))
     pairs = np.stack(pairs)
     
@@ -154,13 +154,13 @@ def register_stacks(path_ref, path_reg):
     dist_reg = get_distances(coords_reg) * rscale_factor
     scores = np.median(np.abs(dist_ref - dist_reg), axis=0)
     pairs = np.column_stack((pairs, scores))
-    outliers = np.where(scores > 30)[0] # parameter
+    outliers = np.where(scores > 30)[0] # parameter (30)
     coords_ref = np.delete(coords_ref, outliers, axis=0)
     coords_reg = np.delete(coords_reg, outliers, axis=0)
-    for outlier in outliers:
-        labels_3D_ref[labels_3D_ref == pairs[outlier, 0] + 1] = 0
-        labels_3D_reg[labels_3D_reg == pairs[outlier, 0] + 1] = 0
-       
+    # for outlier in outliers:
+    #     labels_3D_ref[labels_3D_ref == pairs[outlier, 0] + 1] = 0
+    #     labels_3D_reg[labels_3D_reg == pairs[outlier, 0] + 1] = 0
+
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s ({coords_ref.shape[0]} objects)") 
        
@@ -169,31 +169,31 @@ def register_stacks(path_ref, path_reg):
     t0 = time.time()
     print(" - Register : ", end='')
     
-    def get_transform_matrix(coords_ref, coords_reg):
+    # def get_transform_matrix(coords_ref, coords_reg):
        
-        if coords_ref.shape[0] < coords_ref.shape[1]:
-            coords_ref = coords_ref.T
-            coords_reg = coords_reg.T
-        (n, dim) = coords_ref.shape
+    #     if coords_ref.shape[0] < coords_ref.shape[1]:
+    #         coords_ref = coords_ref.T
+    #         coords_reg = coords_reg.T
+    #     (n, dim) = coords_ref.shape
         
-        # Compute least squares
-        p, res, rnk, s = lstsq(
-            np.hstack((coords_ref, np.ones([n, 1]))), coords_reg)
-        # Get translations & transform matrix
-        t, T = p[-1].T, p[:-1].T
+    #     # Compute least squares
+    #     p, res, rnk, s = lstsq(
+    #         np.hstack((coords_ref, np.ones([n, 1]))), coords_reg)
+    #     # Get translations & transform matrix
+    #     t, T = p[-1].T, p[:-1].T
         
-        # Merge translations and transform matrix
-        transform_matrix = np.eye(4)
-        transform_matrix[:3, :3] = T
-        transform_matrix[:3, 3] = t
+    #     # Merge translations and transform matrix
+    #     transform_matrix = np.eye(4)
+    #     transform_matrix[:3, :3] = T
+    #     transform_matrix[:3, 3] = t
         
-        return transform_matrix
+    #     return transform_matrix
     
-    # Compute transformation matrix
-    transform_matrix = get_transform_matrix(coords_ref, coords_reg)
+    # # Compute transformation matrix
+    # transform_matrix = get_transform_matrix(coords_ref, coords_reg)
     
-    # Apply transformation
-    transformed_stack = affine_transform(stack_reg, transform_matrix)
+    # # Apply transformation
+    # transformed_stack = affine_transform(stack_reg, transform_matrix)
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
@@ -206,7 +206,7 @@ if __name__ == "__main__":
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
                 
         for i in range(1, len(paths)):
-            if i == 2:
+            if i == 5:
                 register_stacks(paths[0], paths[i])
         
         # stack_reg = Parallel(n_jobs=-1)(
@@ -227,6 +227,6 @@ viewer = napari.Viewer()
 viewer.add_labels(labels_3D_ref)
 viewer.add_labels(labels_3D_reg)
 
-viewer = napari.Viewer()
-viewer.add_image(stack_ref)
-viewer.add_image(transformed_stack)
+# viewer = napari.Viewer()
+# viewer.add_image(stack_ref)
+# viewer.add_image(transformed_stack)

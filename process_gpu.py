@@ -12,22 +12,22 @@ from skimage.transform import downscale_local_mean, rescale
 from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import (
-    disk, binary_dilation, binary_erosion, remove_small_objects
+    disk, ball, binary_dilation, binary_erosion, remove_small_objects
     )
 
 # Scipy
-from scipy.signal import find_peaks, peak_prominences
+from scipy.signal import find_peaks, peak_prominences, peak_widths
 from scipy.ndimage import (
     gaussian_filter1d, binary_fill_holes, distance_transform_edt
     )
 
 # Functions
-from functions import shift_stack, norm_stack, predict
+from functions import filt_median, shift_stack, norm_stack, predict
 
 #%% Inputs --------------------------------------------------------------------
 
 # Parameters
-overwrite = False
+overwrite = True
 df = 4 # downscale factor
 
 # Paths
@@ -36,9 +36,9 @@ raw_path = Path(data_path, "0-raw")
 model_path = Path.cwd() / f"model-weights_matrix_p0256_d{df}.h5"
 experiments = [
     "D1_ICONX_DoS",
-    "D11_ICONX_DoS",
-    "D12_ICONX_corrosion", 
-    "H9_ICONX_DoS",
+    # "D11_ICONX_DoS",
+    # "D12_ICONX_corrosion", 
+    # "H9_ICONX_DoS",
     ]
 
 #%% Function(s) ---------------------------------------------------------------
@@ -51,7 +51,9 @@ def process_stack(path, experiment_path, df):
         mtx_mask, rod_mask,\
         mtx_EDM, rod_EDM,\
         mtx_EDM_3D, mtx_EDM_3D_low,\
+        void_mask_3D, liquid_mask_3D,\
         obj_df, obj_probs, obj_mask_3D, obj_labels_3D, obj_labels_3D_low,\
+        obj_dist, mtx_dist, void_area, liquid_area,\
         mtx_EDM_avg, obj_EDM_avg,\
         out_mask, out_mask_3D_low,\
         obj_cat,\
@@ -61,7 +63,7 @@ def process_stack(path, experiment_path, df):
 
     name = path.name    
 
-    # Read --------------------------------------------------------------------
+    #%% Read ------------------------------------------------------------------
     
     print(f"(process) {name}")
     t0 = time.time()
@@ -76,7 +78,7 @@ def process_stack(path, experiment_path, df):
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
     
-    # Crop --------------------------------------------------------------------
+    #%% Crop ------------------------------------------------------------------
     
     t0 = time.time()
     print(" - Crop : ", end='')
@@ -111,7 +113,7 @@ def process_stack(path, experiment_path, df):
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
 
-    # Downscale ---------------------------------------------------------------
+    #%% Downscale -------------------------------------------------------------
 
     t0 = time.time()
     print(" - Downscale : ", end='')
@@ -121,10 +123,10 @@ def process_stack(path, experiment_path, df):
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
         
-    # Process -----------------------------------------------------------------
+    #%% Preprocess ------------------------------------------------------------
     
     t0 = time.time()
-    print(" - Process : ", end='')
+    print(" - Preprocess : ", end='')
     
     def get_centers(img):
         idx = np.argwhere((img > 30e3) == 1) # parameter
@@ -173,7 +175,7 @@ def process_stack(path, experiment_path, df):
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s") 
     
-    # Predict -----------------------------------------------------------------
+    #%% Predict ---------------------------------------------------------------
     
     t0 = time.time()
 
@@ -183,28 +185,114 @@ def process_stack(path, experiment_path, df):
     t1 = time.time()
     print(f" - Predict : {(t1-t0):<5.2f}s") 
     
-    # Objects -----------------------------------------------------------------
+    #%% Segment ---------------------------------------------------------------
+    
+    t0 = time.time()
+    print(" - Segment : ", end='')
+
+    def get_obj_mask(obj_probs, min_size, erode_radius):
+        obj_mask_3D = obj_probs > 0.5
+        obj_mask_3D = remove_small_objects(obj_mask_3D, min_size=min_size)
+        if erode_radius > 1:
+            obj_mask_3D = binary_erosion(obj_mask_3D, footprint=ball(erode_radius))
+        return obj_mask_3D
+    
+    # Format data
+    stack_norm = filt_median(stack_norm, 8 // df) # Parameter (8)
+    obj_mask_3D = get_obj_mask(
+        obj_probs, 1.5e4 * (1 / df) ** 3, 8 // df) # Parameter (1.5e4, 8)
+    obj_labels_3D = label(obj_mask_3D)
+    mtx_EDM_3D = shift_stack(mtx_EDM, centers, reverse=True)
+    
+    # Measure object EDM & percentile low
+    obj_EDM, obj_pcl = [], []
+    rvl_lab = (obj_labels_3D[obj_labels_3D > 0]).ravel()
+    rvl_EDM = (mtx_EDM_3D[obj_labels_3D > 0]).ravel()
+    rvl_int = (stack_norm[obj_labels_3D > 0]).ravel()
+    for idx in range(1, np.max(obj_labels_3D)):
+        obj_EDM.append(np.mean(rvl_EDM[rvl_lab == idx]))
+        obj_pcl.append(np.percentile(rvl_int[rvl_lab == idx], 5)) # Parameter (5)
+    obj_EDM = np.stack(obj_EDM)
+    obj_pcl = np.stack(obj_pcl)
+        
+    # Find ref. points & fit parameters
+    maxEDM = np.max(obj_EDM)
+    x0 = maxEDM * 0.1 # Parameter (0.1)
+    x1 = maxEDM - x0
+    y0 = np.percentile(obj_pcl[obj_EDM < x0], 25) # Parameter (25)
+    y1 = np.percentile(obj_pcl[obj_EDM > x1], 25) # Parameter (25)
+    a = (y1 - y0) / (x1 - x0)
+    b = y0 - a * x0
+    
+    # Determine threshold
+    obj_pcl -= (a * obj_EDM + b)
+    minPcl, maxPcl = np.min(obj_pcl), np.max(obj_pcl)
+    hist, bins = np.histogram(obj_pcl, bins=100, range=(minPcl, maxPcl))   
+    hist = gaussian_filter1d(hist, sigma=2) # Parameter
+    peaks, _ = find_peaks(hist, distance=33) # Parameter
+    _, _, lws, rws = peak_widths(hist, peaks, rel_height=0.5) # Parameter
+    idx = np.argmin(peaks)
+    thresh = rws[idx] + (rws[idx] - peaks[idx])
+    thresh_val = bins[int(thresh) + 1] + y0
+    thresh_val *= 1.0 # Parameter (1.0)
+    # print(thresh_val)
+        
+    # plt.plot(hist)
+    # plt.axvline(x=peaks[idx])
+    # plt.axvline(x=rws[idx])
+    # plt.axvline(x=thresh, color="red")
+
+    # Correct stack_norm
+    obj_mask_3D = get_obj_mask(
+        obj_probs, 1.5e4 * (1 / df) ** 3, 4 // df) # Parameter (1.5e4, 4)
+    mtx_EDM_3D = (a * mtx_EDM_3D + b) - y0
+    mtx_EDM_3D[obj_mask_3D == 0] = 0
+    stack_norm_corr = stack_norm - mtx_EDM_3D
+    
+    # Get void & liquide masks
+    void_mask_3D = stack_norm_corr.copy()
+    void_mask_3D[obj_mask_3D == 0] = 0
+    void_mask_3D = void_mask_3D < thresh_val
+    void_mask_3D[obj_mask_3D == 0] = 0
+    liquid_mask_3D = stack_norm_corr.copy()
+    liquid_mask_3D[obj_mask_3D == 0] = 0
+    liquid_mask_3D = liquid_mask_3D > thresh_val
+    liquid_mask_3D[obj_mask_3D == 0] = 0
+    
+    # Filter masks
+    liquid_mask_3D = remove_small_objects(liquid_mask_3D, min_size=256 // df)
+    void_mask_3D[(liquid_mask_3D == 0) & (obj_mask_3D == 1)] = 1
+    
+    t1 = time.time()
+    print(f"{(t1-t0):<5.2f}s") 
+    
+    #%% Objects ---------------------------------------------------------------
     
     t0 = time.time()
     print(" - Objects : ", end='')
         
-    def get_object_EDM(idx, obj_labels_3D, mtx_EDM_3D, cat_mask_3D):
+    def get_object_measurments(
+            idx, obj_labels_3D, 
+            void_mask_3D, liquid_mask_3D,
+            mtx_EDM_3D, cat_mask_3D
+            ):
         labels = obj_labels_3D.copy()
         labels[labels == idx] = 0
+        void_area = np.sum(void_mask_3D[obj_labels_3D == idx])
+        liquid_area = np.sum(liquid_mask_3D[obj_labels_3D == idx])
         obj_EDM_3D = distance_transform_edt(1 - labels > 0)
         obj_EDM_3D[obj_labels_3D == 0] = 0 # Don't know why
         obj_dist = np.nanmean(obj_EDM_3D[obj_labels_3D == idx])
         mtx_dist = np.nanmean(mtx_EDM_3D[obj_labels_3D == idx])
         category = np.max(cat_mask_3D_low[obj_labels_3D == idx])
-        return obj_dist, mtx_dist, category
+        return void_area, liquid_area, obj_dist, mtx_dist, category
     
     # Parameters
     obj_df = 16 // df # parameter
     
     # Object mask and labels
-    obj_mask_3D = obj_probs > 0.5 # parameter (0.5)
-    obj_mask_3D = remove_small_objects(
-        obj_mask_3D, min_size=1e5 * (1 / df) ** 3) # parameter (1.5e5)
+    obj_mask_3D = get_obj_mask(
+        obj_probs, 1.5e5 * (1 / df) ** 3, 4 // df) # Parameter (1.5e5, 4)
     obj_mask_3D = clear_border(obj_mask_3D)
     obj_labels_3D = label(obj_mask_3D)
 
@@ -215,6 +303,8 @@ def process_stack(path, experiment_path, df):
     # Downscale data
     obj_labels_3D_low = rescale(
         obj_labels_3D, 1 / obj_df, order=0).astype(int)
+    void_mask_3D_low = rescale(void_mask_3D, 1 / obj_df, order=0)
+    liquid_mask_3D_low = rescale(liquid_mask_3D, 1 / obj_df, order=0)
     mtx_EDM_3D_low = rescale(
         shift_stack(mtx_EDM, centers, reverse=True), 1 / obj_df)
     cat_mask1_3D_low = rescale(
@@ -226,32 +316,39 @@ def process_stack(path, experiment_path, df):
     # Get object measurments
     idxs = np.unique(obj_labels_3D)[1:]
     outputs = Parallel(n_jobs=-1)(
-            delayed(get_object_EDM)(
-                idx, obj_labels_3D_low, mtx_EDM_3D_low, cat_mask_3D_low) 
+            delayed(get_object_measurments)(
+                idx, obj_labels_3D_low, 
+                void_mask_3D_low, liquid_mask_3D_low, 
+                mtx_EDM_3D_low, cat_mask_3D_low
+                ) 
             for idx in idxs
             )
-    obj_dist = [data[0] for data in outputs] * obj_df
-    mtx_dist = [data[1] for data in outputs] * obj_df
-    category = [data[2] for data in outputs]    
+    void_area   = [data[0] for data in outputs]
+    liquid_area = [data[1] for data in outputs] 
+    obj_dist    = [data[2] for data in outputs]
+    mtx_dist    = [data[3] for data in outputs]
+    category    = [data[4] for data in outputs]   
 
     # Get object properties
     objects = []
     props = regionprops(obj_labels_3D)
     for i, prop in enumerate(props):
         objects.append({
-            "label"    : prop.label,
-            "centroid" : prop.centroid,
-            "area"     : prop.area,
-            "solidity" : prop.solidity,
-            "obj_dist" : obj_dist[i],
-            "mtx_dist" : mtx_dist[i],
-            "category" : category[i],
+            "label"       : prop.label,
+            "centroid"    : prop.centroid,
+            "area"        : prop.area,
+            "solidity"    : prop.solidity,
+            "void_area"   : void_area[i] * (obj_df ** 3),
+            "liquid_area" : liquid_area[i] * (obj_df ** 3),
+            "obj_dist"    : obj_dist[i] * obj_df,
+            "mtx_dist"    : mtx_dist[i] * obj_df,
+            "category"    : category[i],
             })
             
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s") 
     
-    # Save --------------------------------------------------------------------
+    #%% Save ------------------------------------------------------------------
     
     t0 = time.time()
     print(" - Save : ", end='')
@@ -272,6 +369,14 @@ def process_stack(path, experiment_path, df):
     io.imsave(
         experiment_path / (name + f"_crop_df{df}_labels.tif"), 
         obj_labels_3D.astype("uint16"), check_contrast=False
+        )
+    io.imsave(
+        experiment_path / (name + f"_crop_df{df}_void_mask.tif"), 
+        void_mask_3D.astype("uint8") * 255, check_contrast=False
+        )
+    io.imsave(
+        experiment_path / (name + f"_crop_df{df}_liquid_mask.tif"), 
+        liquid_mask_3D.astype("uint8") * 255, check_contrast=False
         )
         
     # Metadata
