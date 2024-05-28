@@ -27,7 +27,7 @@ experiment = "D1_ICONX_DoS"
 # experiment = "D11_ICONX_DoS" 
 # experiment = "D12_ICONX_corrosion"
 # experiment = "H9_ICONX_DoS"
-name = f"{experiment}_Time3_crop_df4"
+name = f"{experiment}_Time2_crop_df4"
 
 # Parameters
 overwrite = False
@@ -109,7 +109,7 @@ thresh_val *= 1.0 # Parameter (1.0)
 
 # Correct stack_norm
 obj_mask_3D = get_obj_mask(
-    obj_probs, 1.5e4 * (1 / df) ** 3, 4 // df) # Parameter (1.5e4, 4)
+    obj_probs, 1.5e4 * (1 / df) ** 3, 8 // df) # Parameter (1.5e4, 8)
 mtx_EDM_3D = (a * mtx_EDM_3D + b) - y0
 mtx_EDM_3D[obj_mask_3D == 0] = 0
 stack_norm_corr = stack_norm - mtx_EDM_3D
@@ -125,7 +125,8 @@ liquid_mask_3D = liquid_mask_3D > thresh_val
 liquid_mask_3D[obj_mask_3D == 0] = 0
 
 # Filter masks
-liquid_mask_3D = remove_small_objects(liquid_mask_3D, min_size=256 // df)
+liquid_mask_3D = remove_small_objects(
+    liquid_mask_3D, min_size=1.5e4 * (1 / df) ** 3) # Parameter (1.5e4)
 void_mask_3D[(liquid_mask_3D == 0) & (obj_mask_3D == 1)] = 1
 
 t1 = time.time()
@@ -135,7 +136,7 @@ print(f"{(t1-t0):<5.2f}s")
 
 viewer = napari.Viewer()
 viewer.add_image(stack, opacity=0.75)
-# viewer.add_image(stack_norm_corr, opacity=0.75)
+viewer.add_image(stack_norm_corr, opacity=0.75)
 viewer.add_image(
     void_mask_3D, 
     opacity=0.5,

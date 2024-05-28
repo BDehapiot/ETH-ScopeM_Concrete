@@ -35,10 +35,10 @@ data_path = Path("D:/local_Concrete/data")
 raw_path = Path(data_path, "0-raw")
 model_path = Path.cwd() / f"model-weights_matrix_p0256_d{df}.h5"
 experiments = [
-    "D1_ICONX_DoS",
+    # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
-    # "H9_ICONX_DoS",
+    "H9_ICONX_DoS",
     ]
 
 #%% Function(s) ---------------------------------------------------------------
@@ -241,10 +241,10 @@ def process_stack(path, experiment_path, df):
     # plt.axvline(x=peaks[idx])
     # plt.axvline(x=rws[idx])
     # plt.axvline(x=thresh, color="red")
-
+    
     # Correct stack_norm
     obj_mask_3D = get_obj_mask(
-        obj_probs, 1.5e4 * (1 / df) ** 3, 4 // df) # Parameter (1.5e4, 4)
+        obj_probs, 1.5e4 * (1 / df) ** 3, 8 // df) # Parameter (1.5e4, 8)
     mtx_EDM_3D = (a * mtx_EDM_3D + b) - y0
     mtx_EDM_3D[obj_mask_3D == 0] = 0
     stack_norm_corr = stack_norm - mtx_EDM_3D
@@ -260,7 +260,8 @@ def process_stack(path, experiment_path, df):
     liquid_mask_3D[obj_mask_3D == 0] = 0
     
     # Filter masks
-    liquid_mask_3D = remove_small_objects(liquid_mask_3D, min_size=256 // df)
+    liquid_mask_3D = remove_small_objects(
+        liquid_mask_3D, min_size=1.5e4 * (1 / df) ** 3) # Parameter (1.5e4)
     void_mask_3D[(liquid_mask_3D == 0) & (obj_mask_3D == 1)] = 1
     
     t1 = time.time()
