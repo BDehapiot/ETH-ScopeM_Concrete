@@ -23,7 +23,7 @@ from bdtools.patch import extract_patches
 train_path = Path(Path.cwd(), 'data', 'train')
 
 # Prepare
-mask_type = "matrix"
+mask_type = "liquid"
 df = 4
 size = 1024 // df
 overlap = size // 4

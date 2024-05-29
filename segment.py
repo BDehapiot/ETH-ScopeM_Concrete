@@ -23,11 +23,12 @@ from functions import filt_median, shift_stack
 
 # Paths
 data_path = Path("D:/local_Concrete/data")
-experiment = "D1_ICONX_DoS" 
+# experiment = "D1_ICONX_DoS" 
 # experiment = "D11_ICONX_DoS" 
 # experiment = "D12_ICONX_corrosion"
+experiment = "H1_ICONX_DoS"
 # experiment = "H9_ICONX_DoS"
-name = f"{experiment}_Time2_crop_df4"
+name = f"{experiment}_Time3_crop_df4"
 
 # Parameters
 overwrite = False
@@ -124,10 +125,10 @@ liquid_mask_3D[obj_mask_3D == 0] = 0
 liquid_mask_3D = liquid_mask_3D > thresh_val
 liquid_mask_3D[obj_mask_3D == 0] = 0
 
-# Filter masks
-liquid_mask_3D = remove_small_objects(
-    liquid_mask_3D, min_size=1.5e4 * (1 / df) ** 3) # Parameter (1.5e4)
-void_mask_3D[(liquid_mask_3D == 0) & (obj_mask_3D == 1)] = 1
+# # Filter masks
+# liquid_mask_3D = remove_small_objects(
+#     liquid_mask_3D, min_size=1.5e4 * (1 / df) ** 3) # Parameter (1.5e4)
+# void_mask_3D[(liquid_mask_3D == 0) & (obj_mask_3D == 1)] = 1
 
 t1 = time.time()
 print(f"{(t1-t0):<5.2f}s") 

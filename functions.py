@@ -102,7 +102,8 @@ def predict(stack, model_path, subset=1000):
     
     # Load weights
     model.load_weights(model_path)
-    size = int(model_path.name[22:26])
+    size = int(model_path.name[20:24]) # void
+    # size = int(model_path.name[22:26]) # matrix
     overlap = size // 4
 
     # Define sub indexes

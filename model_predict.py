@@ -17,9 +17,10 @@ from functions import filt_median
 
 # Paths
 data_path = Path("D:/local_Concrete/data")
-model_name = "model-weights_matrix_p0256_d4.h5"
+# model_name = "model-weights_matrix_p0256_d4.h5"
+model_name = "model-weights_liquid_p0256_d4.h5"
 model_path = Path.cwd() / model_name
-stack_name = "D1_ICONX_DoS_Time2_crop_df4_norm.tif"
+stack_name = "D1_ICONX_DoS_Time1_crop_df4_norm.tif"
 stack_path = list(data_path.glob(f"**/*{stack_name}"))[0]
 
 # Parameters
@@ -40,7 +41,8 @@ def predict(stack, model_path, subset=1000):
     
     # Load weights
     model.load_weights(model_path)
-    size = int(model_path.name[22:26])
+    size = int(model_path.name[20:24]) # void
+    # size = int(model_path.name[22:26]) # matrix
     overlap = size // 4
 
     # Define sub indexes

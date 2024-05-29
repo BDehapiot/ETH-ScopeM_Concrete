@@ -27,18 +27,19 @@ from functions import filt_median, shift_stack, norm_stack, predict
 #%% Inputs --------------------------------------------------------------------
 
 # Parameters
-overwrite = True
+overwrite = False
 df = 4 # downscale factor
 
 # Paths
 data_path = Path("D:/local_Concrete/data")
 raw_path = Path(data_path, "0-raw")
-model_path = Path.cwd() / f"model-weights_matrix_p0256_d{df}.h5"
+model_path = Path.cwd() / f"model-weights_void_p0256_d{df}.h5"
 experiments = [
     # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
-    "H9_ICONX_DoS",
+    "H1_ICONX_DoS",
+    # "H9_ICONX_DoS",
     ]
 
 #%% Function(s) ---------------------------------------------------------------
@@ -51,9 +52,9 @@ def process_stack(path, experiment_path, df):
         mtx_mask, rod_mask,\
         mtx_EDM, rod_EDM,\
         mtx_EDM_3D, mtx_EDM_3D_low,\
-        void_mask_3D, liquid_mask_3D,\
+        air_mask_3D, liquid_mask_3D,\
         obj_df, obj_probs, obj_mask_3D, obj_labels_3D, obj_labels_3D_low,\
-        obj_dist, mtx_dist, void_area, liquid_area,\
+        obj_dist, mtx_dist, air_area, liquid_area,\
         mtx_EDM_avg, obj_EDM_avg,\
         out_mask, out_mask_3D_low,\
         obj_cat,\
@@ -189,7 +190,7 @@ def process_stack(path, experiment_path, df):
     
     t0 = time.time()
     print(" - Segment : ", end='')
-
+    
     def get_obj_mask(obj_probs, min_size, erode_radius):
         obj_mask_3D = obj_probs > 0.5
         obj_mask_3D = remove_small_objects(obj_mask_3D, min_size=min_size)
@@ -249,20 +250,20 @@ def process_stack(path, experiment_path, df):
     mtx_EDM_3D[obj_mask_3D == 0] = 0
     stack_norm_corr = stack_norm - mtx_EDM_3D
     
-    # Get void & liquide masks
-    void_mask_3D = stack_norm_corr.copy()
-    void_mask_3D[obj_mask_3D == 0] = 0
-    void_mask_3D = void_mask_3D < thresh_val
-    void_mask_3D[obj_mask_3D == 0] = 0
+    # Get air & liquide masks
+    air_mask_3D = stack_norm_corr.copy()
+    air_mask_3D[obj_mask_3D == 0] = 0
+    air_mask_3D = air_mask_3D < thresh_val
+    air_mask_3D[obj_mask_3D == 0] = 0
     liquid_mask_3D = stack_norm_corr.copy()
     liquid_mask_3D[obj_mask_3D == 0] = 0
     liquid_mask_3D = liquid_mask_3D > thresh_val
     liquid_mask_3D[obj_mask_3D == 0] = 0
     
-    # Filter masks
-    liquid_mask_3D = remove_small_objects(
-        liquid_mask_3D, min_size=1.5e4 * (1 / df) ** 3) # Parameter (1.5e4)
-    void_mask_3D[(liquid_mask_3D == 0) & (obj_mask_3D == 1)] = 1
+    # # Filter masks
+    # liquid_mask_3D = remove_small_objects(
+    #     liquid_mask_3D, min_size=1.5e4 * (1 / df) ** 3) # Parameter (1.5e4)
+    # air_mask_3D[(liquid_mask_3D == 0) & (obj_mask_3D == 1)] = 1
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s") 
@@ -274,19 +275,19 @@ def process_stack(path, experiment_path, df):
         
     def get_object_measurments(
             idx, obj_labels_3D, 
-            void_mask_3D, liquid_mask_3D,
+            air_mask_3D, liquid_mask_3D,
             mtx_EDM_3D, cat_mask_3D
             ):
         labels = obj_labels_3D.copy()
         labels[labels == idx] = 0
-        void_area = np.sum(void_mask_3D[obj_labels_3D == idx])
+        air_area = np.sum(air_mask_3D[obj_labels_3D == idx])
         liquid_area = np.sum(liquid_mask_3D[obj_labels_3D == idx])
         obj_EDM_3D = distance_transform_edt(1 - labels > 0)
         obj_EDM_3D[obj_labels_3D == 0] = 0 # Don't know why
         obj_dist = np.nanmean(obj_EDM_3D[obj_labels_3D == idx])
         mtx_dist = np.nanmean(mtx_EDM_3D[obj_labels_3D == idx])
         category = np.max(cat_mask_3D_low[obj_labels_3D == idx])
-        return void_area, liquid_area, obj_dist, mtx_dist, category
+        return air_area, liquid_area, obj_dist, mtx_dist, category
     
     # Parameters
     obj_df = 16 // df # parameter
@@ -304,7 +305,7 @@ def process_stack(path, experiment_path, df):
     # Downscale data
     obj_labels_3D_low = rescale(
         obj_labels_3D, 1 / obj_df, order=0).astype(int)
-    void_mask_3D_low = rescale(void_mask_3D, 1 / obj_df, order=0)
+    air_mask_3D_low = rescale(air_mask_3D, 1 / obj_df, order=0)
     liquid_mask_3D_low = rescale(liquid_mask_3D, 1 / obj_df, order=0)
     mtx_EDM_3D_low = rescale(
         shift_stack(mtx_EDM, centers, reverse=True), 1 / obj_df)
@@ -319,12 +320,12 @@ def process_stack(path, experiment_path, df):
     outputs = Parallel(n_jobs=-1)(
             delayed(get_object_measurments)(
                 idx, obj_labels_3D_low, 
-                void_mask_3D_low, liquid_mask_3D_low, 
+                air_mask_3D_low, liquid_mask_3D_low, 
                 mtx_EDM_3D_low, cat_mask_3D_low
                 ) 
             for idx in idxs
             )
-    void_area   = [data[0] for data in outputs]
+    air_area   = [data[0] for data in outputs]
     liquid_area = [data[1] for data in outputs] 
     obj_dist    = [data[2] for data in outputs]
     mtx_dist    = [data[3] for data in outputs]
@@ -339,7 +340,7 @@ def process_stack(path, experiment_path, df):
             "centroid"    : prop.centroid,
             "area"        : prop.area,
             "solidity"    : prop.solidity,
-            "void_area"   : void_area[i] * (obj_df ** 3),
+            "air_area"   : air_area[i] * (obj_df ** 3),
             "liquid_area" : liquid_area[i] * (obj_df ** 3),
             "obj_dist"    : obj_dist[i] * obj_df,
             "mtx_dist"    : mtx_dist[i] * obj_df,
@@ -372,8 +373,8 @@ def process_stack(path, experiment_path, df):
         obj_labels_3D.astype("uint16"), check_contrast=False
         )
     io.imsave(
-        experiment_path / (name + f"_crop_df{df}_void_mask.tif"), 
-        void_mask_3D.astype("uint8") * 255, check_contrast=False
+        experiment_path / (name + f"_crop_df{df}_air_mask.tif"), 
+        air_mask_3D.astype("uint8") * 255, check_contrast=False
         )
     io.imsave(
         experiment_path / (name + f"_crop_df{df}_liquid_mask.tif"), 

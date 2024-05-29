@@ -15,7 +15,8 @@ experiments = [
     # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
-    "H9_ICONX_DoS",
+    "H1_ICONX_DoS",
+    # "H9_ICONX_DoS",
     ]
 
 # Parameters
@@ -57,9 +58,9 @@ def analyse_stacks(paths):
         plt.subplot(nT, 1, t + 1)
         category = np.stack([obj["category"] for obj in objects])
         mtx_dist = np.stack([obj["mtx_dist"] for obj in objects])
-        void_area = np.stack([obj["void_area"] for obj in objects])
+        air_area = np.stack([obj["air_area"] for obj in objects])
         liquid_area = np.stack([obj["liquid_area"] for obj in objects])
-        ratio = liquid_area / (void_area + liquid_area)
+        ratio = liquid_area / (air_area + liquid_area)
         plt.scatter(mtx_dist, ratio, c=category)
         
         
@@ -67,7 +68,7 @@ def analyse_stacks(paths):
     # results = {
     #     "area" : [],
     #     "mtx_dist" : [],
-    #     "void_area" : [],
+    #     "air_area" : [],
     #     "liquid_area" : [],
     #     "ratio" : [],
     #     }
@@ -78,14 +79,14 @@ def analyse_stacks(paths):
     #     objects = metadata["objects"]
     #     area = np.stack([obj["area"] for obj in objects])
     #     mtx_dist = np.stack([obj["mtx_dist"] for obj in objects])
-    #     void_area = np.stack([obj["void_area"] for obj in objects])
+    #     air_area = np.stack([obj["air_area"] for obj in objects])
     #     liquid_area = np.stack([obj["liquid_area"] for obj in objects])
-    #     ratio = liquid_area / (void_area + liquid_area)
+    #     ratio = liquid_area / (air_area + liquid_area)
         
     #     # Append results
     #     results["area"].append(area)
     #     results["mtx_dist"].append(mtx_dist)
-    #     results["void_area"].append(void_area)
+    #     results["air_area"].append(air_area)
     #     results["liquid_area"].append(liquid_area)
     #     results["ratio"].append(ratio)
         
