@@ -4,36 +4,34 @@ import time
 import numpy as np
 from skimage import io
 from pathlib import Path
-import matplotlib.pyplot as plt
-from pystackreg import StackReg
-from scipy.ndimage import shift
-from skimage.filters import median
 from joblib import Parallel, delayed
-from skimage.transform import rescale
-from skimage.transform import downscale_local_mean
+
+# Skimage
+from skimage.segmentation import clear_border
+from skimage.transform import downscale_local_mean, rescale
+from skimage.morphology import disk, binary_dilation, remove_small_objects
+
+# Scipy
+from scipy.linalg import lstsq
+from skimage.filters import median
+from skimage.measure import label, regionprops
 from scipy.signal import find_peaks, peak_prominences
-from skimage.morphology import (
-    disk, ball, binary_dilation, binary_erosion, remove_small_holes,
-    )
 from scipy.ndimage import (
-    gaussian_filter1d, binary_fill_holes, distance_transform_edt, 
-    maximum_filter,
+    shift, gaussian_filter1d, binary_fill_holes, distance_transform_edt, 
+    affine_transform,
     )
 
 #%% Parameters ----------------------------------------------------------------
 
-data_path = "D:/local_Concrete/data/DIA"
-stack_name = "D11_ICONX_DoS"
-
 rsize_factor = 8 # Image size reduction factor
-mThresh_coeff = 1.0 # adjust matrix threshold
-rThresh_coeff = 1.0 # adjust rod threshold
+mtx_thresh_coeff = 1.0 # adjust matrix threshold
+rod_thresh_coeff = 1.0 # adjust rod threshold
 
-# minHeight = 1.8
-# minDist = 40 / rsize_factor
-# minBord = 20 / rsize_factor
+#%% Paths ---------------------------------------------------------------------
 
-#%% Initialize ----------------------------------------------------------------
+data_path = "D:/local_Concrete/data/DIA"
+stack_names = ["D1_ICONX_DoS", "D11_ICONX_DoS", "D12_ICONX_corrosion", "H9_ICONX_DoS"]
+stack_name = stack_names[0]
 
 # List stacks 
 stack_paths = []
@@ -42,25 +40,25 @@ for folder in Path(data_path).iterdir():
         for subfolder in folder.iterdir():
             if subfolder.is_dir():
                 stack_paths.append(subfolder)
-                
+
 #%% Functions -----------------------------------------------------------------
 
 def resize_image(img_path):
     return downscale_local_mean(io.imread(img_path), rsize_factor)
 
-def roll_image(img):
-    idx = np.argwhere((img > 30000) == 1)
-    y0, x0 = img.shape[0] // 2, img.shape[1] // 2
+def roll_image(img_rsize):
+    idx = np.argwhere((img_rsize > 30000) == 1)
+    y0, x0 = img_rsize.shape[0] // 2, img_rsize.shape[1] // 2
     y1, x1 = np.mean(idx, axis=0)
-    yxShift = [y0 - y1, x0 - x1]
-    return shift(img, yxShift, mode='wrap'), yxShift 
+    yx_shift = [y0 - y1, x0 - x1]
+    return shift(img_rsize, yx_shift, mode='wrap'), yx_shift 
 
-def get_masks(stack):
+def get_2Dmasks(stack_roll):
     
     # Intensity distribution
-    avgProj = np.mean(stack, axis=0)
+    avg_proj = np.mean(stack_roll, axis=0)
     hist, bins = np.histogram(
-        avgProj.flatten(), bins=1024, range=(0, 65535))    
+        avg_proj.flatten(), bins=1024, range=(0, 65535))    
     hist = gaussian_filter1d(hist, sigma=2)
     pks, _ = find_peaks(hist, distance=30)
     proms = peak_prominences(hist, pks)[0]
@@ -68,28 +66,101 @@ def get_masks(stack):
     select_pks = sorted_pks[:3]
     
     # Get masks
-    mThresh = bins[select_pks[1]] - (
+    mtx_thresh = bins[select_pks[1]] - (
         (bins[select_pks[1]] - bins[select_pks[0]]) / 2)
-    rThresh = bins[select_pks[2]] - (
+    rod_thresh = bins[select_pks[2]] - (
         (bins[select_pks[2]] - bins[select_pks[1]]) / 2)
-    mThresh *= mThresh_coeff
-    rThresh *= rThresh_coeff
-    mMask = avgProj >= mThresh
-    rMask = avgProj >= rThresh
-    rMask = binary_fill_holes(rMask)
-    rMask = binary_dilation(rMask, footprint=disk(3))
-    mMask = mMask ^ rMask
+    mtx_thresh *= mtx_thresh_coeff
+    rod_thresh *= rod_thresh_coeff
+    mtx_mask = avg_proj >= mtx_thresh
+    rod_mask = avg_proj >= rod_thresh
+    rod_mask = binary_fill_holes(rod_mask)
+    rod_mask = binary_dilation(rod_mask, footprint=disk(3))
+    mtx_mask = mtx_mask ^ rod_mask
     
-    return avgProj, mThresh, rThresh, mMask, rMask
+    return avg_proj, mtx_thresh, rod_thresh, mtx_mask, rod_mask
 
-def normalize_image(img, yxShift, avgProj, mMask):
-    yxShift = [yxShift[0] * -1, yxShift[1] * -1]
-    avgProj = shift(avgProj, yxShift)
-    mMask = shift(mMask.astype("uint8"), yxShift)
-    img = np.divide(img, avgProj, where=avgProj!=0)
-    img = median(img, footprint=disk(5)) # test
-    img *= mMask
-    return img
+def get_3Dmasks(
+        img_rsize, yx_shift, avg_proj, rod_mask, mtx_mask, rod_EDM, mtx_EDM):
+    
+    yx_shift = [yx_shift[0] * -1, yx_shift[1] * -1]
+    
+    # Shift 2D masks
+    avg_proj = shift(avg_proj, yx_shift)
+    rod_mask = shift(rod_mask.astype("uint8"), yx_shift)
+    mtx_mask = shift(mtx_mask.astype("uint8"), yx_shift)
+    rod_EDM = shift(rod_EDM, yx_shift)
+    mtx_EDM = shift(mtx_EDM, yx_shift)
+    
+    # Normalize img
+    img_norm = np.divide(img_rsize, avg_proj, where=avg_proj!=0)
+    img_norm = median(img_norm, footprint=disk(8 // rsize_factor)) # parameter
+    img_norm *= mtx_mask
+        
+    return img_norm, avg_proj, rod_mask, mtx_mask, rod_EDM, mtx_EDM
+
+def get_object_EDM(idx, obj_labels_3D, mtx_mask_3D):
+    
+    # Measure object EDM avg
+    labels = obj_labels_3D.copy()
+    labels[labels == idx] = 0
+    obj_EDM_3D = distance_transform_edt(1 - labels > 0)
+    obj_EDM_3D[mtx_mask_3D == 0] = 0
+    obj_EDM_avg = np.mean(obj_EDM_3D[obj_labels_3D == idx])
+    
+    return obj_EDM_avg
+
+def get_object_properties(stack_norm, mtx_mask_3D, mtx_EDM_3D):
+    
+    # Get object mask and labels
+    obj_mask_3D = (stack_norm < 0.8) & (stack_norm > 0) # parameter
+    obj_mask_3D = remove_small_objects(
+        obj_mask_3D, min_size=2.5e5 * (1 / rsize_factor) ** 3) # parameter
+    obj_mask_3D = clear_border(obj_mask_3D)
+    obj_labels_3D = label(obj_mask_3D)
+    
+    # Get object properties
+    obj_props = []
+    mtx_EDM_3D /= np.max(mtx_EDM_3D)
+    props = regionprops(obj_labels_3D, intensity_image=mtx_EDM_3D)
+    for prop in props:
+        obj_props.append((
+            prop.label,
+            prop.centroid,
+            prop.area,
+            prop.intensity_mean,
+            prop.solidity,
+            )) 
+        
+    # Get object EDM
+    downscale_factor = 4 # parameter
+    idxs = np.unique(obj_labels_3D)[1:]
+    obj_labels_3D_low = rescale(
+        obj_labels_3D, 1/downscale_factor, order=0).astype(int)
+    mtx_mask_3D_low = obj_labels_3D_low > 0
+    obj_EDM_avg = Parallel(n_jobs=-1)(
+            delayed(get_object_EDM)(idx, obj_labels_3D_low, mtx_mask_3D_low) 
+            for idx in idxs
+            )
+    
+    # Merge properties
+    obj_props = [
+        data + (obj_EDM_avg[i] * downscale_factor,)
+        for i, data in enumerate(obj_props)
+        ]
+    
+    # # Get object EDM
+    # idxs = np.unique(obj_labels_3D)[1:]
+    # obj_EDM_avg = Parallel(n_jobs=-1)(
+    #         delayed(get_object_EDM)(idx, obj_labels_3D, mtx_mask_3D) 
+    #         for idx in idxs
+    #         )
+    
+    # # Merge properties
+    # obj_props = [
+    #     data + (obj_EDM_avg[i],) for i, data in enumerate(obj_props)]
+    
+    return obj_mask_3D, obj_labels_3D, obj_props
 
 # -----------------------------------------------------------------------------
 
@@ -97,7 +168,7 @@ def process_stack(stack_path, stack_data):
     
     # Initialize
     print(f"\n{stack_path.stem}")
-    print( "  ---------")
+    print( "-----------------------------------------------------------------")
     
     # Get img paths
     img_paths = []
@@ -115,7 +186,7 @@ def process_stack(stack_path, stack_data):
     stack_rsize = np.stack(stack_rsize)
     stack_rsize = downscale_local_mean(stack_rsize, (rsize_factor, 1, 1))
     t1 = time.time()
-    print(f" {(t1-t0):<5.2f}s")  
+    print(f" {(t1-t0):<5.2f}s")
     
     # Select slices
     z_mean = np.mean(stack_rsize, axis=(1,2)) 
@@ -123,187 +194,365 @@ def process_stack(stack_path, stack_data):
     z0 = np.nonzero(z_mean_diff)[0][0] + 1
     z1 = np.where(
         (z_mean_diff > 0) & (z_mean > np.max(z_mean) * 0.9))[0][-1] + 1
-    stack_rsize = stack_rsize[z0:z1, ...]   
+    stack_rsize = stack_rsize[z0:z1, ...]  
     
     # Roll stack
     print("  Roll    :", end='')
     t0 = time.time()
     outputs = Parallel(n_jobs=-1)(
-            delayed(roll_image)(img) 
-            for img in stack_rsize
+            delayed(roll_image)(img_rsize) 
+            for img_rsize in stack_rsize
             )
     stack_roll = np.stack([data[0] for data in outputs])
-    yxShifts = [data[1] for data in outputs]
+    yx_shifts = [data[1] for data in outputs]
     t1 = time.time()
     print(f" {(t1-t0):<5.2f}s") 
     
-    # Get masks
-    avgProj, mThresh, rThresh, mMask, rMask = get_masks(stack_roll)
+    # Get 2D masks
+    print("  2Dmasks :", end='')
+    t0 = time.time()
+    (
+      avg_proj, mtx_thresh, rod_thresh,
+      mtx_mask, rod_mask
+      ) = get_2Dmasks(stack_roll)
+    t1 = time.time()
+    print(f" {(t1-t0):<5.2f}s") 
 
     # Get EDM
-    mEDM = distance_transform_edt(mMask)
-    rEDM = distance_transform_edt(~rMask)
-
+    mtx_EDM = distance_transform_edt(mtx_mask | rod_mask)
+    rod_EDM = distance_transform_edt(~rod_mask)
+    
     # Rescale data
     if stack_data:
         rscale_factor = np.sqrt(
-            np.sum(stack_data[0]["rMask"]) / np.sum(rMask)) # rMask or mMask 
+            np.sum(stack_data[0]["rod_mask"]) / np.sum(rod_mask))
         print("  Rescale :", end='')
         t0 = time.time()
         stack_rsize = rescale(stack_rsize, rscale_factor)
-        avgProj = rescale(avgProj, rscale_factor)
-        mMask = rescale(mMask, rscale_factor, order=0)
-        rMask = rescale(rMask, rscale_factor, order=0)
-        mEDM = rescale(mEDM, rscale_factor)
-        rEDM = rescale(rEDM, rscale_factor)
+        avg_proj = rescale(avg_proj, rscale_factor)
+        mtx_mask = rescale(mtx_mask, rscale_factor, order=0)
+        rod_mask = rescale(rod_mask, rscale_factor, order=0)
+        mtx_EDM = rescale(mtx_EDM, rscale_factor)
+        rod_EDM = rescale(rod_EDM, rscale_factor)
         t1 = time.time()
         print(f" {(t1-t0):<5.2f}s") 
         
-    # Normalize stack
-    print("  Norm    :", end='')
+    # Get 3D masks
+    print("  3Dmasks :", end='')
     t0 = time.time()
-    stack_norm = Parallel(n_jobs=-1)(
-            delayed(normalize_image)(img, yxShift, avgProj, mMask) 
-            for img, yxShift in zip(stack_rsize, yxShifts)
-            )
-    stack_norm = np.stack(stack_norm)
+    outputs = Parallel(n_jobs=-1)(
+            delayed(get_3Dmasks)(
+                img_rsize, yx_shift, avg_proj, 
+                rod_mask, mtx_mask, 
+                rod_EDM, mtx_EDM
+                ) 
+            for img_rsize, yx_shift in zip(stack_rsize, yx_shifts)
+            )    
+    stack_norm  = np.stack([data[0] for data in outputs])
+    avg_proj_3D = np.stack([data[1] for data in outputs])
+    rod_mask_3D = np.stack([data[2] for data in outputs])
+    mtx_mask_3D = np.stack([data[3] for data in outputs])
+    rod_EDM_3D  = np.stack([data[4] for data in outputs])
+    mtx_EDM_3D  = np.stack([data[5] for data in outputs])    
+    t1 = time.time()
+    print(f" {(t1-t0):<5.2f}s")
+    
+    # Get object properties
+    print("  Objects :", end='')
+    t0 = time.time()
+    obj_mask_3D, obj_labels_3D, obj_props = get_object_properties(
+        stack_norm, mtx_mask_3D, mtx_EDM_3D)
     t1 = time.time()
     print(f" {(t1-t0):<5.2f}s") 
-         
+    
     # Print variables
     print( "  ---------")
-    print(f"  zSlices : {z0}-{z1}")
-    print(f"  mThresh : {int(mThresh):<5d}")
-    print(f"  rThresh : {int(rThresh):<5d}")
+    print(f"  zSlices    : {z0}-{z1}")
+    print(f"  mtx_thresh : {int(mtx_thresh):<5d}")
+    print(f"  rod_thresh : {int(rod_thresh):<5d}")
     if stack_data:
-        print(f"  rscaleF : {rscale_factor:<.3f}")
+        print(f"  rscaleF    : {rscale_factor:<.3f}")
         
     # Outputs
     stack_data.append({
-        "stack_path"   : stack_path,
-        "stack_rsize"  : stack_rsize,
-        "stack_roll"   : stack_roll,
-        "stack_norm"   : stack_norm,
-        "yxShifts"     : yxShifts,
-        "avgProj"      : avgProj,
-        "mThresh"      : mThresh,
-        "rThresh"      : rThresh,
-        "mMask"        : mMask,
-        "rMask"        : rMask,
-        "mEDM"         : mEDM,
-        "rEDM"         : rEDM,
+        "stack_path"    : stack_path,
+        "stack_rsize"   : stack_rsize,
+        "stack_roll"    : stack_roll,
+        "stack_norm"    : stack_norm,
+        "yx_shifts"     : yx_shifts,
+        "avg_proj"      : avg_proj,
+        "mtx_thresh"    : mtx_thresh,
+        "rod_thresh"    : rod_thresh,
+        "mtx_mask"      : mtx_mask,
+        "rod_mask"      : rod_mask,
+        "mtx_EDM"       : mtx_EDM,
+        "rod_EDM"       : rod_EDM,
+        "avg_proj_3D"   : avg_proj_3D,
+        "rod_mask_3D"   : rod_mask_3D,
+        "mtx_mask_3D"   : mtx_mask_3D,
+        "rod_EDM_3D"    : rod_EDM_3D,
+        "mtx_EDM_3D"    : mtx_EDM_3D,
+        "obj_mask_3D"   : obj_mask_3D,
+        "obj_labels_3D" : obj_labels_3D,
+        "obj_props"     : obj_props,
         })
 
-#%%
+#%% Execute -------------------------------------------------------------------
 
 # Execute
 stack_data = []
 for stack_path in stack_paths:
     if stack_name in stack_path.name: 
         process_stack(stack_path, stack_data)
+
+#%%
+
+def get_distances(coords):
+    num_points = len(coords)
+    distance_matrix = np.zeros((num_points, num_points))
+    for i in range(num_points):
+        for j in range(num_points):
+            if i != j:
+                distance_matrix[i][j] = np.linalg.norm(coords[i] - coords[j])
+    return distance_matrix
+
+def affine_registration(coords_ref, coords_reg):
+   
+    if coords_ref.shape[0] < coords_ref.shape[1]:
+        coords_ref = coords_ref.T
+        coords_reg = coords_reg.T
+    (n, dim) = coords_ref.shape
+    
+    # Compute least squares
+    p, res, rnk, s = lstsq(
+        np.hstack((coords_ref, np.ones([n, 1]))), coords_reg)
+    # Get translations & transform matrix
+    t, T = p[-1].T, p[:-1].T
+    
+    # Merge translations and transform matrix
+    transform_matrix = np.eye(4)
+    transform_matrix[:3, :3] = T
+    transform_matrix[:3, 3] = t
+    
+    return transform_matrix
+
+def get_transform_matrix(data_ref, data_reg):
+    
+    # Extract variables
+    obj_props_ref = data_ref["obj_props"]
+    obj_props_reg = data_reg["obj_props"]
+    obj_labels_3D_ref = data_ref["obj_labels_3D"]
+    obj_labels_3D_reg = data_ref["obj_labels_3D"]
+    
+    # Test object pairs
+    tests = []
+    props_ref = np.stack([data[2:] for data in obj_props_ref])
+    props_reg = np.stack([data[2:] for data in obj_props_reg])
+    for prop_ref in props_ref:
+        test = []
+        for prop_reg in props_reg:
+            ratio = prop_ref / prop_reg
+            ratio_avg = np.abs(1 - np.mean(ratio))
+            ratio_std = np.std(ratio)
+            test.append((ratio_avg + ratio_std) / 2)
+        tests.append(test)
         
-# Save
+    # Identify matching pairs
+    pairs = []
+    for idx_ref, test in enumerate(tests):
+        idx_reg = np.argmin(test)
+        score = np.min(test)
+        if score < 0.08: # parameter
+            pairs.append((idx_ref, idx_reg, score))
+    pairs = np.stack(pairs)
+
+    # Keep best match only
+    for unique in np.unique(pairs[:,1]):
+        idxs = np.where(pairs[:,1] == unique)[0]
+        if len(idxs) > 1:
+            idx = np.argmin(pairs[idxs, 2])
+            idxs = np.delete(idxs, idx)
+            pairs = np.delete(pairs, idxs, axis=0)
+            
+    # Isolate pairs coordinates
+    coords_ref, coords_reg = [], []
+    labels_3D_ref = np.zeros_like(obj_labels_3D_ref)
+    labels_3D_reg = np.zeros_like(obj_labels_3D_reg)
+    for pair in pairs:
+        idx_ref, idx_reg = int(pair[0]), int(pair[1])
+        coords_ref.append(obj_props_ref[idx_ref][1])
+        coords_reg.append(obj_props_reg[idx_reg][1])
+        labels_3D_ref[obj_labels_3D_ref == idx_ref + 1] = idx_ref + 1
+        labels_3D_reg[obj_labels_3D_reg == idx_reg + 1] = idx_ref + 1
+    coords_ref = np.stack(coords_ref)
+    coords_reg = np.stack(coords_reg)
+    
+    # Remove false pairs
+    dist_ref = get_distances(coords_ref)
+    dist_reg = get_distances(coords_reg)
+    scores = np.median(np.abs(dist_ref - dist_reg), axis=0)
+    outliers = np.where(scores > 2)[0]
+    coords_ref = np.delete(coords_ref, outliers, axis=0)
+    coords_reg = np.delete(coords_reg, outliers, axis=0)
+    for outlier in outliers:
+        labels_3D_ref[labels_3D_ref == pairs[outlier, 0] + 1] = 0
+        labels_3D_reg[labels_3D_reg == pairs[outlier, 0] + 1] = 0
+        
+    # Compute transformation matrix
+    transform_matrix = affine_registration(coords_ref, coords_reg)
+    
+    return transform_matrix
+       
+#%%
+       
+stack_reg_data = [stack_data[0]["stack_rsize"]]
+for i in range(1, len(stack_data)):
+    transform_matrix = get_transform_matrix(stack_data[0], stack_data[i])
+    stack_reg_data.append(
+        affine_transform(stack_data[i]["stack_rsize"], transform_matrix)
+        )
+
+min_z = np.min([stack.shape[0] for stack in stack_reg_data])
+min_y = np.min([stack.shape[1] for stack in stack_reg_data]) 
+min_x = np.min([stack.shape[2] for stack in stack_reg_data])
+
+for i in range(len(stack_reg_data)):
+    stack_reg_data[i] = stack_reg_data[i][:min_z, :min_y, :min_x]
+stack_reg = np.stack(stack_reg_data)    
+
+io.imsave(
+    Path(data_path, "stack_reg.tif"),
+    stack_reg.astype("float32"),
+    check_contrast=False,
+    imagej=True,
+    metadata={'axes': 'TZYX'},
+    photometric='minisblack',
+    planarconfig='contig',
+    )
+
+#%% Display (report) ----------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+
+# import napari
+# viewer = napari.Viewer()
+
+# idx = 1
+# stack_norm = stack_data[idx]["stack_rsize"]
+# obj_labels_3D = stack_data[idx]["obj_labels_3D"]
+# viewer.add_image(stack_norm)
+# viewer.add_labels(obj_labels_3D)
+
+# viewer.dims.ndisplay = 3
+# viewer.camera.zoom = 1.75
+# viewer.camera.perspective = 30
+# viewer.camera.angles = (0, 0, -45)
+
+# stack_reg_data = [stack_data[0]["stack_rsize"]]
+# for i in range(1, len(stack_data)):
+#     transform_matrix = get_transform_matrix(stack_data[0], stack_data[i])
+#     stack_reg_data.append(
+#         affine_transform(stack_data[i]["stack_rsize"], transform_matrix)
+#         )
+
+# -----------------------------------------------------------------------------
+
+# transform_matrix, labels_3D_ref, labels_3D_reg = get_transform_matrix(
+#     stack_data[0], stack_data[1])
+
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_labels(labels_3D_ref)
+# viewer.add_labels(labels_3D_reg)
+
+# idx = 1
+
+# if idx == 0:
+#     stack_norm = stack_data[idx]["stack_rsize"]
+#     viewer.add_image(stack_norm)
+#     viewer.add_labels(labels_3D_ref)
+    
+# if idx == 1:
+#     stack_norm = stack_data[idx]["stack_rsize"]
+#     viewer.add_image(stack_norm)
+#     viewer.add_labels(labels_3D_reg)
+    
+# viewer.dims.ndisplay = 3
+# viewer.camera.zoom = 1.75
+# viewer.camera.perspective = 30
+# viewer.camera.angles = (0, 0, -45)
+
+
+#%% Save ----------------------------------------------------------------------
+
 for data in stack_data:
+    
     io.imsave(
         Path(data_path, f"{data['stack_path'].stem}_rsize.tif"),
         data["stack_rsize"].astype("float32"), check_contrast=False,
         )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
-    #     data["stack_roll"].astype("float32"), check_contrast=False,
-    #     )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_roll.tif"),
+        data["stack_roll"].astype("float32"), check_contrast=False,
+        )
     io.imsave(
         Path(data_path, f"{data['stack_path'].stem}_norm.tif"),
         data["stack_norm"].astype("float32"), check_contrast=False,
         )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rMask.tif"),
-    #     data["rMask"].astype("uint8") * 255, check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_mMask.tif"),
-    #     data["mMask"].astype("uint8") * 255, check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_rEDM.tif"),
-    #     data["rEDM"].astype("float32"), check_contrast=False,
-    #     )
-    # io.imsave(
-    #     Path(data_path, f"{data['stack_path'].stem}_mEDM.tif"),
-    #     data["mEDM"].astype("float32"), check_contrast=False,
-    #     )
-     
-#%%
-
-from skimage.morphology import remove_small_objects
-
-idxA, idxB = 0, 1
-array1 = stack_data[idxA]["stack_norm"]
-array2 = stack_data[idxB]["stack_norm"]
-
-# Binarize
-array1 = (array1 < 0.8) & (array1 > 0)
-array1 = remove_small_objects(array1, min_size=512) #
-array2 = (array2 < 0.8) & (array2 > 0)
-array2 = remove_small_objects(array2, min_size=512) #
-
-# Match size
-max_z = max(array1.shape[0], array2.shape[0])
-max_y = max(array1.shape[1], array2.shape[1])
-max_x = max(array1.shape[2], array2.shape[2])
-
-pad_z1 = max_z - array1.shape[0]
-pad_y1 = max_y - array1.shape[1]
-pad_x1 = max_x - array1.shape[2]
-array1 = np.pad(
-    array1, ((0, pad_z1), (0, pad_y1), (0, pad_x1)), mode='constant')
-
-pad_z2 = max_z - array2.shape[0]
-pad_y2 = max_y - array2.shape[1]
-pad_x2 = max_x - array2.shape[2]
-array2 = np.pad(
-    array2, ((0, pad_z2), (0, pad_y2), (0, pad_x2)), mode='constant')
-
-# Convert to float
-array1 = array1.astype(float)
-array2 = array2.astype(float)
-
-# Display
-import napari
-viewer = napari.Viewer()
-viewer.add_image(array2, colormap="green", rendering="attenuated_mip")
-viewer.add_image(array1, colormap="gray", rendering="attenuated_mip")
     
-#%%
-
-from dipy.align.imaffine import MutualInformationMetric, AffineRegistration
-from dipy.align.transforms import RigidTransform3D
-
-# Set up the Mutual Information metric
-metric = MutualInformationMetric(nbins=32, sampling_proportion=100)
-
-# Initialize the Affine registration object with the Rigid transform
-affreg = AffineRegistration(
-    metric=metric, 
-    level_iters=[10000, 1000, 100], 
-    sigmas=[3.0, 1.0, 0.0], 
-    factors=[4, 2, 1]
-    )
-
-# Apply the rigid body registration
-rigid = affreg.optimize(
-    static=array1, 
-    moving=array2, 
-    transform=RigidTransform3D(),
-    params0=None, 
-    starting_affine=np.eye(4)
-    )
-
-# Apply the transformation
-array2_reg = rigid.transform(array2)
-
-import napari
-viewer = napari.Viewer()
-viewer.add_image(array2_reg, colormap="magenta", rendering="attenuated_mip")
-viewer.add_image(array2, colormap="green", rendering="attenuated_mip")
-viewer.add_image(array1, colormap="gray", rendering="attenuated_mip")
+    # -------------------------------------------------------------------------
+    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_avg_proj.tif"),
+        data["avg_proj"].astype("float32"), check_contrast=False,
+        )    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_mask.tif"),
+        data["rod_mask"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_mask.tif"),
+        data["mtx_mask"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_EDM.tif"),
+        data["rod_EDM"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_EDM.tif"),
+        data["mtx_EDM"].astype("float32"), check_contrast=False,
+        )
+    
+    # -------------------------------------------------------------------------
+   
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_avg_proj_3D.tif"),
+        data["avg_proj_3D"].astype("float32"), check_contrast=False,
+        )    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_mask_3D.tif"),
+        data["rod_mask_3D"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_mask_3D.tif"),
+        data["mtx_mask_3D"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_rod_EDM_3D.tif"),
+        data["rod_EDM_3D"].astype("float32"), check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_mtx_EDM_3D.tif"),
+        data["mtx_EDM_3D"].astype("float32"), check_contrast=False,
+        )
+    
+    # -------------------------------------------------------------------------
+    
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_obj_mask_3D.tif"),
+        data["obj_mask_3D"].astype("uint8") * 255, check_contrast=False,
+        )
+    io.imsave(
+        Path(data_path, f"{data['stack_path'].stem}_obj_labels_3D.tif"),
+        data["obj_labels_3D"].astype("uint16"), check_contrast=False,
+        )

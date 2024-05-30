@@ -5,6 +5,7 @@ import pickle
 import numpy as np
 from skimage import io
 from pathlib import Path
+import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 
 # Scipy
@@ -13,18 +14,19 @@ from scipy.ndimage import affine_transform
 
 #%% Inputs --------------------------------------------------------------------
 
+# Parameters
+overwrite = True
+df = 4 # downscale factor
+
 # Paths
 data_path = Path("D:/local_Concrete/data")
 experiments = [
     "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
+    # "H1_ICONX_DoS",
     # "H9_ICONX_DoS",
     ]
-
-# Parameters
-overwrite = False
-df = 4 # downscale factor
 
 #%% Function(s) ---------------------------------------------------------------
 
@@ -33,11 +35,11 @@ def register_stacks(path_ref, path_reg):
     global \
         metadata_ref, metadata_reg,\
         stack_ref, stack_reg,\
-        obj_labels_3D_ref, obj_labels_3D_reg,\
+        obj_labels_ref, obj_labels_reg,\
         obj_props_ref, obj_props_reg, props_ref, props_reg, rscale_factor,\
         size_ref, size_reg,\
         tests, pairs,\
-        labels_3D_ref, labels_3D_reg,\
+        labels_ref, labels_reg,\
         coords_ref, coords_reg,\
         dist_ref, dist_reg,\
         scores,\
@@ -62,8 +64,8 @@ def register_stacks(path_ref, path_reg):
     # Data
     stack_ref = io.imread(experiment_path / (name_ref + ".tif"))
     stack_reg = io.imread(experiment_path / (name_reg + ".tif"))
-    obj_labels_3D_ref = io.imread(experiment_path / (name_ref + "_labels.tif"))
-    obj_labels_3D_reg = io.imread(experiment_path / (name_reg + "_labels.tif"))
+    obj_labels_ref = io.imread(experiment_path / (name_ref + "_labels.tif"))
+    obj_labels_reg = io.imread(experiment_path / (name_reg + "_labels.tif"))
     
     # Metadata
     metadata_ref_path = experiment_path / (name_ref + "_metadata.pkl") 
@@ -72,8 +74,8 @@ def register_stacks(path_ref, path_reg):
         metadata_ref = pickle.load(file)
     with open(metadata_reg_path, 'rb') as file:
         metadata_reg = pickle.load(file)
-    obj_props_ref = metadata_ref["objects"]
-    obj_props_reg = metadata_reg["objects"]
+    obj_data_ref = metadata_ref["obj_data"]
+    obj_data_reg = metadata_reg["obj_data"]
     rscale_factor = np.sqrt(
         np.sum(metadata_ref["rod_mask"]) / np.sum(metadata_reg["rod_mask"]))
     
@@ -94,19 +96,21 @@ def register_stacks(path_ref, path_reg):
                     distance_matrix[i][j] = np.linalg.norm(coords[i] - coords[j])
         return distance_matrix
     
-    # Extract properties
+    # Extract properties    
     props_ref = np.stack([
-        (data["area"], data["obj_dist"], data["mtx_dist"], data["solidity"]) 
-        for data in obj_props_ref
+        # (data["area"] , data["mtx_dist"], data["solidity"]) 
+        (data["area"] , data["obj_dist"], data["mtx_dist"], data["solidity"]) 
+        for data in obj_data_ref
         ])
     props_reg = np.stack([
-        (data["area"], data["obj_dist"], data["mtx_dist"], data["solidity"]) 
-        for data in obj_props_reg
+        # (data["area"] * rscale_factor ** 3, data["mtx_dist"] * rscale_factor, data["solidity"]) 
+        (data["area"] * rscale_factor ** 3, data["obj_dist"] * rscale_factor, data["mtx_dist"] * rscale_factor, data["solidity"])
+        for data in obj_data_reg
         ])
     
-    # Normalize (area, obj_dist, mtx_dist)
-    for col in [0, 1, 2]:
-        props_reg[:, col] *= rscale_factor
+    # # Normalize (area, obj_dist, mtx_dist)
+    # for col in [0, 1, 2]:
+    #     props_reg[:, col] *= rscale_factor
     
     # Test object pairs
     tests = []
@@ -120,12 +124,13 @@ def register_stacks(path_ref, path_reg):
         tests.append(test)
         
     # Identify matching pairs
-    pairs = []
+    pairs, scores1 = []
     for idx_ref, test in enumerate(tests):
         idx_reg = np.argmin(test)
-        score = np.min(test)
-        if score < 0.2: # parameter (0.2)
-            pairs.append((idx_ref, idx_reg, score))
+        score1 = np.min(test)
+        if score1 < 0.2: # parameter (0.2)
+            pairs.append((idx_ref, idx_reg, score1))
+        scores1.append(scores1) # for checking
     pairs = np.stack(pairs)
     
     # Keep best match only
@@ -138,28 +143,32 @@ def register_stacks(path_ref, path_reg):
             
     # Isolate pairs coordinates
     coords_ref, coords_reg = [], []
-    labels_3D_ref = np.zeros_like(obj_labels_3D_ref)
-    labels_3D_reg = np.zeros_like(obj_labels_3D_reg)
+    labels_ref = np.zeros_like(obj_labels_ref)
+    labels_reg = np.zeros_like(obj_labels_reg)
     for pair in pairs:
         idx_ref, idx_reg = int(pair[0]), int(pair[1])
-        coords_ref.append(obj_props_ref[idx_ref]["centroid"])
-        coords_reg.append(obj_props_reg[idx_reg]["centroid"])
-        labels_3D_ref[obj_labels_3D_ref == idx_ref + 1] = idx_ref + 1
-        labels_3D_reg[obj_labels_3D_reg == idx_reg + 1] = idx_ref + 1
+        coords_ref.append(obj_data_ref[idx_ref]["centroid"])
+        coords_reg.append(obj_data_reg[idx_reg]["centroid"])
+        labels_ref[obj_labels_ref == idx_ref + 1] = idx_ref + 1
+        labels_reg[obj_labels_reg == idx_reg + 1] = idx_ref + 1
     coords_ref = np.stack(coords_ref)
     coords_reg = np.stack(coords_reg)
     
     # Remove false pairs
     dist_ref = get_distances(coords_ref) 
     dist_reg = get_distances(coords_reg) * rscale_factor
-    scores = np.median(np.abs(dist_ref - dist_reg), axis=0)
-    pairs = np.column_stack((pairs, scores))
-    outliers = np.where(scores > 30)[0] # parameter (30)
+    scores2 = np.median(np.abs(dist_ref - dist_reg), axis=0)
+    pairs = np.column_stack((pairs, scores2))
+    outliers = np.where(scores > 60)[0] # parameter (30)
     coords_ref = np.delete(coords_ref, outliers, axis=0)
     coords_reg = np.delete(coords_reg, outliers, axis=0)
-    # for outlier in outliers:
-    #     labels_3D_ref[labels_3D_ref == pairs[outlier, 0] + 1] = 0
-    #     labels_3D_reg[labels_3D_reg == pairs[outlier, 0] + 1] = 0
+    for outlier in outliers:
+        labels_ref[labels_ref == pairs[outlier, 0] + 1] = 0
+        labels_reg[labels_reg == pairs[outlier, 0] + 1] = 0
+    
+    # Plots
+    plt.hist(scores1, bins=20)
+    plt.hist(scores2, bins=20)
 
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s ({coords_ref.shape[0]} objects)") 
@@ -169,31 +178,31 @@ def register_stacks(path_ref, path_reg):
     t0 = time.time()
     print(" - Register : ", end='')
     
-    # def get_transform_matrix(coords_ref, coords_reg):
+    def get_transform_matrix(coords_ref, coords_reg):
        
-    #     if coords_ref.shape[0] < coords_ref.shape[1]:
-    #         coords_ref = coords_ref.T
-    #         coords_reg = coords_reg.T
-    #     (n, dim) = coords_ref.shape
+        if coords_ref.shape[0] < coords_ref.shape[1]:
+            coords_ref = coords_ref.T
+            coords_reg = coords_reg.T
+        (n, dim) = coords_ref.shape
         
-    #     # Compute least squares
-    #     p, res, rnk, s = lstsq(
-    #         np.hstack((coords_ref, np.ones([n, 1]))), coords_reg)
-    #     # Get translations & transform matrix
-    #     t, T = p[-1].T, p[:-1].T
+        # Compute least squares
+        p, res, rnk, s = lstsq(
+            np.hstack((coords_ref, np.ones([n, 1]))), coords_reg)
+        # Get translations & transform matrix
+        t, T = p[-1].T, p[:-1].T
         
-    #     # Merge translations and transform matrix
-    #     transform_matrix = np.eye(4)
-    #     transform_matrix[:3, :3] = T
-    #     transform_matrix[:3, 3] = t
+        # Merge translations and transform matrix
+        transform_matrix = np.eye(4)
+        transform_matrix[:3, :3] = T
+        transform_matrix[:3, 3] = t
         
-    #     return transform_matrix
+        return transform_matrix
     
-    # # Compute transformation matrix
-    # transform_matrix = get_transform_matrix(coords_ref, coords_reg)
+    # Compute transformation matrix
+    transform_matrix = get_transform_matrix(coords_ref, coords_reg)
     
-    # # Apply transformation
-    # transformed_stack = affine_transform(stack_reg, transform_matrix)
+    # Apply transformation
+    transformed_stack = affine_transform(stack_reg, transform_matrix)
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
@@ -206,7 +215,7 @@ if __name__ == "__main__":
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
                 
         for i in range(1, len(paths)):
-            if i == 5:
+            if i == 1:
                 register_stacks(paths[0], paths[i])
         
         # stack_reg = Parallel(n_jobs=-1)(
@@ -220,13 +229,13 @@ if __name__ == "__main__":
 import napari
 
 # viewer = napari.Viewer()
-# viewer.add_labels(obj_labels_3D_ref)
-# viewer.add_labels(obj_labels_3D_reg)
-
-viewer = napari.Viewer()
-viewer.add_labels(labels_3D_ref)
-viewer.add_labels(labels_3D_reg)
+# viewer.add_labels(obj_labels_ref)
+# viewer.add_labels(obj_labels_reg)
 
 # viewer = napari.Viewer()
-# viewer.add_image(stack_ref)
-# viewer.add_image(transformed_stack)
+# viewer.add_labels(labels_ref)
+# viewer.add_labels(labels_reg)
+
+viewer = napari.Viewer()
+viewer.add_image(stack_ref)
+viewer.add_image(transformed_stack)
