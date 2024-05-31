@@ -383,3 +383,5 @@ def objects(
             })
         
     return obj_labels, obj_data
+
+#%% Function(s) register ------------------------------------------------------

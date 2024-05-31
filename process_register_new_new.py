@@ -18,7 +18,7 @@ from scipy.ndimage import affine_transform
 #%% Inputs --------------------------------------------------------------------
 
 # Parameters
-overwrite = True
+overwrite = False
 df = 4 # downscale factor
 
 # Paths
@@ -31,15 +31,15 @@ experiments = [
     # "H9_ICONX_DoS",
     ]
 
-#%% Function(s) get transform matrix ------------------------------------------
+#%% Function(s) register ------------------------------------------------------
 
-def get_transform_matrix(path_ref, path_reg):
+def register(path_ref, path_reg):
 
     name_ref = path_ref.stem  
     name_reg = path_reg.stem
     experiment_path = path_ref.parent
     print(
-        f"(get_transform_matrix)\n"
+        f"(register)\n"
         f"ref : {name_ref}\n"
         f"reg : {name_reg}"
         )
@@ -52,7 +52,11 @@ def get_transform_matrix(path_ref, path_reg):
     # Data
     obj_labels_ref = io.imread(experiment_path / (name_ref + "_labels.tif"))
     obj_labels_reg = io.imread(experiment_path / (name_reg + "_labels.tif"))
-    
+    targets = [
+        io.imread(experiment_path / (name_reg + ".tif")),
+        io.imread(experiment_path / (name_reg + "_probs.tif")),
+        ]
+
     # Metadata
     metadata_ref_path = experiment_path / (name_ref + "_metadata.pkl") 
     metadata_reg_path = experiment_path / (name_reg + "_metadata.pkl") 
@@ -159,9 +163,9 @@ def get_transform_matrix(path_ref, path_reg):
     # Register ----------------------------------------------------------------
        
     t0 = time.time()
-    print(" - get_transform_matrix : ", end='')
+    print(" - Register : ", end='')
     
-    def _get_transform_matrix(coords_ref, coords_reg):
+    def get_transform_matrix(coords_ref, coords_reg):
        
         if coords_ref.shape[0] < coords_ref.shape[1]:
             coords_ref = coords_ref.T
@@ -181,8 +185,17 @@ def get_transform_matrix(path_ref, path_reg):
         
         return transform_matrix
     
-    # Compute transformation matrix
-    transform_matrix = _get_transform_matrix(coords_ref, coords_reg)
+    def apply_transform_matrix(arr, tansform_matrix):
+        return affine_transform(arr, transform_matrix)
+    
+    # Get transformation matrix
+    transform_matrix = get_transform_matrix(coords_ref, coords_reg)
+    
+    # Apply transformation matrix
+    outputs = Parallel(n_jobs=-1)(
+            delayed(apply_transform_matrix)(arr, transform_matrix) 
+            for arr in targets
+            )
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
@@ -191,6 +204,16 @@ def get_transform_matrix(path_ref, path_reg):
     
     t0 = time.time()
     print(" - Save : ", end='')
+    
+    # Data
+    io.imsave(
+        experiment_path / (name_reg + "_registered.tif"), 
+        outputs[0].astype("uint16"), check_contrast=False
+        )
+    io.imsave(
+        experiment_path / (name_reg + "_probs_registered.tif"), 
+        outputs[1].astype("float32"), check_contrast=False
+        )
     
     # Transformation matrix
     transform_matrix_path = experiment_path / (name_reg + "_transform_matrix.pkl")
@@ -239,21 +262,8 @@ def get_transform_matrix(path_ref, path_reg):
     # plt.tight_layout(pad=1)
     # plt.show()
 
-#%% Function(s) apply transform matrix ----------------------------------------
-
-def apply_transform_matrix(path_reg):
-
-    name_reg = path_reg.stem
-    experiment_path = path_reg.parent
-    print(
-        f"(apply_transform_matrix)\n"
-        f"reg : {name_reg}"
-        )    
-
-    # Read --------------------------------------------------------------------
+#%% Function(s) merge ---------------------------------------------------------
     
-    
-
 #%% Execute -------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -261,5 +271,26 @@ if __name__ == "__main__":
         experiment_path = data_path / experiment
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
         for i in range(1, len(paths)):
-            get_transform_matrix(paths[0], paths[i])
-            apply_transform_matrix(paths[i])
+            test_path = experiment_path / (paths[i].stem + "_transform_matrix.pkl")
+            if not test_path.is_file():
+                register(paths[0], paths[i])
+            elif overwrite:
+                register(paths[0], paths[i])
+            
+#%%
+
+stack_reg, probs_reg = [], []
+for i, path in enumerate(paths):
+    if i > 0:
+        stack_reg.append(
+            io.imread(path.with_name(path.stem + "_registered.tif")))
+        probs_reg.append(
+            io.imread(path.with_name(path.stem + "_probs_registered.tif")))
+    else:
+        stack_reg.append(
+            io.imread(path.with_name(path.stem + ".tif")))
+        probs_reg.append(
+            io.imread(path.with_name(path.stem + "_probs.tif")))
+
+for probs in probs_reg:
+    print(probs.shape)
