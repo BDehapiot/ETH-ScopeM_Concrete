@@ -21,9 +21,9 @@ df = 4 # downscale factor
 # Paths
 data_path = Path("D:/local_Concrete/data")
 experiments = [
-    "D1_ICONX_DoS",
+    # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
-    # "D12_ICONX_corrosion", 
+    "D12_ICONX_corrosion", 
     # "H1_ICONX_DoS",
     # "H9_ICONX_DoS",
     ]

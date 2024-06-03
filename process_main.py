@@ -23,11 +23,11 @@ data_path = Path("D:/local_Concrete/data")
 raw_path = Path(data_path, "0-raw")
 model_path = Path.cwd() / f"model-weights_void_p0256_d{df}.h5"
 experiments = [
-    "D1_ICONX_DoS",
+    # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
     # "H1_ICONX_DoS",
-    # "H9_ICONX_DoS",
+    "H9_ICONX_DoS",
     ]
 
 #%% Function(s) ---------------------------------------------------------------
@@ -179,4 +179,4 @@ if __name__ == "__main__":
             if not test_path.is_file():
                 process_stack(path, experiment_path, df)   
             elif overwrite:
-                process_stack(path, experiment_path, df)  
+                process_stack(path, experiment_path, df)

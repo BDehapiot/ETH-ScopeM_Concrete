@@ -18,17 +18,17 @@ from scipy.ndimage import affine_transform
 #%% Inputs --------------------------------------------------------------------
 
 # Parameters
-overwrite = False
+overwrite = True
 df = 4 # downscale factor
 
 # Paths
 data_path = Path("D:/local_Concrete/data")
 experiments = [
     # "D1_ICONX_DoS",
-    "D11_ICONX_DoS",
+    # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
     # "H1_ICONX_DoS",
-    # "H9_ICONX_DoS",
+    "H9_ICONX_DoS",
     ]
 
 #%% Function(s) register ------------------------------------------------------
@@ -38,6 +38,7 @@ def register(path_ref, path_reg):
     name_ref = path_ref.stem  
     name_reg = path_reg.stem
     experiment_path = path_ref.parent
+    experiment_reg_path = experiment_path / "REG"
     print(
         f"(register)\n"
         f"ref : {name_ref}\n"
@@ -52,11 +53,14 @@ def register(path_ref, path_reg):
     # Data
     obj_labels_ref = io.imread(experiment_path / (name_ref + "_labels.tif"))
     obj_labels_reg = io.imread(experiment_path / (name_reg + "_labels.tif"))
-    targets = [
+    inputs = [
         io.imread(experiment_path / (name_reg + ".tif")),
+        io.imread(experiment_path / (name_reg + "_norm.tif")),
         io.imread(experiment_path / (name_reg + "_probs.tif")),
+        io.imread(experiment_path / (name_reg + "_air_mask.tif")),
+        io.imread(experiment_path / (name_reg + "_liquid_mask.tif")),
         ]
-
+    
     # Metadata
     metadata_ref_path = experiment_path / (name_ref + "_metadata.pkl") 
     metadata_reg_path = experiment_path / (name_reg + "_metadata.pkl") 
@@ -71,6 +75,9 @@ def register(path_ref, path_reg):
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s ({rf:.3f} rescale factor)") 
+    
+    if name_ref == name_reg:
+        return inputs
     
     # Match -------------------------------------------------------------------
     
@@ -194,35 +201,17 @@ def register(path_ref, path_reg):
     # Apply transformation matrix
     outputs = Parallel(n_jobs=-1)(
             delayed(apply_transform_matrix)(arr, transform_matrix) 
-            for arr in targets
+            for arr in inputs
             )
+    
+    # Save transformation matrix
+    transform_matrix_path = experiment_reg_path / (name_reg + "_transform_matrix.pkl")
+    with open(transform_matrix_path, 'wb') as file:
+        pickle.dump(transform_matrix, file)
     
     t1 = time.time()
     print(f"{(t1-t0):<5.2f}s")
 
-    # Save --------------------------------------------------------------------
-    
-    t0 = time.time()
-    print(" - Save : ", end='')
-    
-    # Data
-    io.imsave(
-        experiment_path / (name_reg + "_registered.tif"), 
-        outputs[0].astype("uint16"), check_contrast=False
-        )
-    io.imsave(
-        experiment_path / (name_reg + "_probs_registered.tif"), 
-        outputs[1].astype("float32"), check_contrast=False
-        )
-    
-    # Transformation matrix
-    transform_matrix_path = experiment_path / (name_reg + "_transform_matrix.pkl")
-    with open(transform_matrix_path, 'wb') as file:
-        pickle.dump(transform_matrix, file)
-        
-    t1 = time.time()
-    print(f"{(t1-t0):<5.2f}s")
-    
     # Validation --------------------------------------------------------------
     
     # # Check valid pairs
@@ -262,35 +251,68 @@ def register(path_ref, path_reg):
     # plt.tight_layout(pad=1)
     # plt.show()
 
-#%% Function(s) merge ---------------------------------------------------------
+    return outputs
+
+#%% Function(s) regmerge ------------------------------------------------------
     
+def register_merge(outputs, crop=True):
+    
+    # Determine valid_idx
+    minZ = np.min([data[0].shape[0] for data in outputs])
+    if crop:
+        intZ = [np.mean(data[0][:minZ, ...], axis=(1, 2)) for data in outputs]
+        intZ = np.stack(intZ, axis=1)
+        intZ /= np.max(intZ, axis=0)
+        intZ = np.min(intZ, axis=1)
+        valid_idx = np.where(intZ > 0.95)[0]
+    else:
+        valid_idx = np.arange(0, minZ, dtype=int)
+
+    # Merge data
+    stack_reg = np.stack([data[0][valid_idx, ...] for data in outputs])
+    norm_reg = np.stack([data[1][valid_idx, ...] for data in outputs])
+    probs_reg = np.stack([data[2][valid_idx, ...] for data in outputs])
+    air_mask_reg = np.stack([data[3][valid_idx, ...] for data in outputs])
+    liquid_mask_reg = np.stack([data[4][valid_idx, ...] for data in outputs])
+
+    # Data
+    io.imsave(
+        experiment_reg_path / (experiment_path.name + "_reg.tif"), 
+        stack_reg.astype("uint16"), check_contrast=False, 
+        imagej=True, metadata={'axes': 'TZYX'}
+        )
+    io.imsave(
+        experiment_reg_path / (experiment_path.name + "_norm_reg.tif"), 
+        norm_reg.astype("float32"), check_contrast=False, 
+        imagej=True, metadata={'axes': 'TZYX'}
+        )
+    io.imsave(
+        experiment_reg_path / (experiment_path.name + "_probs_reg.tif"), 
+        probs_reg.astype("float32"), check_contrast=False, 
+        imagej=True, metadata={'axes': 'TZYX'}
+        )
+    io.imsave(
+        experiment_reg_path / (experiment_path.name + "_air_mask_reg.tif"), 
+        air_mask_reg.astype("uint8"), check_contrast=False, 
+        imagej=True, metadata={'axes': 'TZYX'}
+        )
+    io.imsave(
+        experiment_reg_path / (experiment_path.name + "_liquid_mask_reg.tif"), 
+        liquid_mask_reg.astype("uint8"), check_contrast=False, 
+        imagej=True, metadata={'axes': 'TZYX'}
+        )    
+
 #%% Execute -------------------------------------------------------------------
 
+outputs = []
 if __name__ == "__main__":
     for experiment in experiments:
         experiment_path = data_path / experiment
+        experiment_reg_path = data_path / experiment / "REG"
+        experiment_reg_path.mkdir(parents=True, exist_ok=True)
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
-        for i in range(1, len(paths)):
-            test_path = experiment_path / (paths[i].stem + "_transform_matrix.pkl")
-            if not test_path.is_file():
-                register(paths[0], paths[i])
-            elif overwrite:
-                register(paths[0], paths[i])
-            
-#%%
-
-stack_reg, probs_reg = [], []
-for i, path in enumerate(paths):
-    if i > 0:
-        stack_reg.append(
-            io.imread(path.with_name(path.stem + "_registered.tif")))
-        probs_reg.append(
-            io.imread(path.with_name(path.stem + "_probs_registered.tif")))
-    else:
-        stack_reg.append(
-            io.imread(path.with_name(path.stem + ".tif")))
-        probs_reg.append(
-            io.imread(path.with_name(path.stem + "_probs.tif")))
-
-for probs in probs_reg:
-    print(probs.shape)
+        test_path = experiment_reg_path / (paths[1].stem + "_transform_matrix.pkl")
+        if not test_path.is_file() or overwrite:
+            for i in range(len(paths)):
+                outputs.append(register(paths[0], paths[i]))
+            register_merge(outputs, crop=False)
