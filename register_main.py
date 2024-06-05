@@ -9,11 +9,13 @@ import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 
 # Skimage
+from skimage.filters import gaussian
+from skimage.exposure import match_histograms
 from skimage.morphology import remove_small_objects
 
 # Scipy
 from scipy.linalg import lstsq
-from scipy.ndimage import affine_transform
+from scipy.ndimage import affine_transform, binary_fill_holes
 
 #%% Inputs --------------------------------------------------------------------
 
@@ -26,9 +28,9 @@ data_path = Path("D:/local_Concrete/data")
 experiments = [
     # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
-    # "D12_ICONX_corrosion", 
+    "D12_ICONX_corrosion", 
     # "H1_ICONX_DoS",
-    "H9_ICONX_DoS",
+    # "H9_ICONX_DoS",
     ]
 
 #%% Function(s) register ------------------------------------------------------
@@ -253,10 +255,10 @@ def register(path_ref, path_reg):
 
     return outputs
 
-#%% Function(s) regmerge ------------------------------------------------------
+#%% Function(s) register_postprocess ------------------------------------------
     
-def register_merge(outputs, crop=True):
-    
+def register_postprocess(outputs, crop=False):
+       
     # Determine valid_idx
     minZ = np.min([data[0].shape[0] for data in outputs])
     if crop:
@@ -274,11 +276,37 @@ def register_merge(outputs, crop=True):
     probs_reg = np.stack([data[2][valid_idx, ...] for data in outputs])
     air_mask_reg = np.stack([data[3][valid_idx, ...] for data in outputs])
     liquid_mask_reg = np.stack([data[4][valid_idx, ...] for data in outputs])
+    
+    # Normalize data
+    mask = norm_reg[0, ...] > 0
+    for t in range(mask.shape[0]):
+        mask[t, ...] = binary_fill_holes(mask[t, ...])
+
+    stack_reg_norm = stack_reg.copy()
+    for t in range(1, stack_reg_norm.shape[0]):
+        stack0 = stack_reg_norm[t - 1, ...]
+        stack0[mask == 0] = 0
+        stack1 = stack_reg_norm[t, ...]
+        stack1[mask == 0] = 0
+        for z in range(stack_reg_norm.shape[1]):
+            img0 = stack0[z, ...].copy()
+            img1 = stack1[z, ...].copy()
+            img0[img1 == 0] = 0
+            stack_reg_norm[t, z, ...] = match_histograms(img1, img0)
+    stack_reg_norm = stack_reg_norm.astype("float32")
+    mask = gaussian(mask, sigma=2)
+    stack_reg_norm *= mask
+    stack_reg_norm = stack_reg_norm.astype("uint16")
 
     # Data
     io.imsave(
         experiment_reg_path / (experiment_path.name + "_reg.tif"), 
         stack_reg.astype("uint16"), check_contrast=False, 
+        imagej=True, metadata={'axes': 'TZYX'}
+        )
+    io.imsave(
+        experiment_reg_path / (experiment_path.name + "_reg_norm.tif"), 
+        stack_reg_norm.astype("uint16"), check_contrast=False, 
         imagej=True, metadata={'axes': 'TZYX'}
         )
     io.imsave(
@@ -315,4 +343,4 @@ if __name__ == "__main__":
         if not test_path.is_file() or overwrite:
             for i in range(len(paths)):
                 outputs.append(register(paths[0], paths[i]))
-            register_merge(outputs, crop=False)
+            register_postprocess(outputs, crop=False)
