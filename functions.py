@@ -314,6 +314,7 @@ def objects(
             ):
         labels = obj_labels.copy()
         labels[labels == idx] = 0
+        area = np.sum(obj_labels == idx)
         air_area = np.sum(air_mask[obj_labels == idx])
         liquid_area = np.sum(liquid_mask[obj_labels == idx])
         obj_EDM = distance_transform_edt(1 - labels > 0)
@@ -321,14 +322,14 @@ def objects(
         obj_dist = np.nanmean(obj_EDM[obj_labels == idx])
         mtx_dist = np.nanmean(mtx_EDM[obj_labels == idx])
         category = np.max(cat_mask_low[obj_labels == idx])
-        return air_area, liquid_area, obj_dist, mtx_dist, category
+        return area, air_area, liquid_area, obj_dist, mtx_dist, category
     
     # Parameters
     obj_df = 16 // df # parameter (16)
     
     # Object mask and labels
     obj_mask = get_obj_mask(
-        probs, 1.5e4 * (1 / df) ** 3, 4 // df) # Parameter (1.5e5, 4)
+        probs, 5e4 * (1 / df) ** 3, 4 // df) # Parameter (1.5e5, 4)
     obj_mask = clear_border(obj_mask)
     obj_labels = label(obj_mask)
     
@@ -360,23 +361,36 @@ def objects(
                 ) 
             for idx in idxs
             )
-    air_area    = [data[0] for data in outputs]
-    liquid_area = [data[1] for data in outputs] 
-    obj_dist    = [data[2] for data in outputs]
-    mtx_dist    = [data[3] for data in outputs]
-    category    = [data[4] for data in outputs]   
+    area        = [data[0] for data in outputs]
+    air_area    = [data[1] for data in outputs]
+    liquid_area = [data[2] for data in outputs] 
+    obj_dist    = [data[3] for data in outputs]
+    mtx_dist    = [data[4] for data in outputs]
+    category    = [data[5] for data in outputs]   
+    
+    # Scale areas
+    area = np.stack(area) * obj_df ** 3
+    air_area = np.stack(air_area) * obj_df ** 3
+    liquid_area = np.stack(liquid_area) * obj_df ** 3
+    ratio = liquid_area / (air_area + liquid_area)
+    air_area = np.round(area * (1 - ratio)).astype(int)
+    liquid_area = np.round(area * ratio).astype(int)
 
     # Get object data
     obj_data = []
     props = regionprops(obj_labels)
     for i, prop in enumerate(props):
+        
         obj_data.append({
             "label"       : prop.label,
-            "centroid"    : prop.centroid,
-            "area"        : prop.area,
+            "ctrd_z"      : prop.centroid[0],
+            "ctrd_y"      : prop.centroid[1],
+            "ctrd_x"      : prop.centroid[2],
+            "area"        : area[i],
+            "air_area"    : air_area[i],
+            "liquid_area" : liquid_area[i],
+            "ratio"       : ratio[i],
             "solidity"    : prop.solidity,
-            "air_area"    : air_area[i] * (obj_df ** 3),
-            "liquid_area" : liquid_area[i] * (obj_df ** 3),
             "obj_dist"    : obj_dist[i] * obj_df,
             "mtx_dist"    : mtx_dist[i] * obj_df,
             "category"    : category[i],

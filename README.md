@@ -23,6 +23,9 @@ matrix.
     - `register_postprocess.py`  
     - `register_main.py`
 
+## Outputs
+- `obj_data.csv`
+
 ## To fix
 - issue #1
     - expl `D1_ICONX_DOS_reg_norm.tif` z=70 t=3
