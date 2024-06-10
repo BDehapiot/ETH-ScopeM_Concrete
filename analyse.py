@@ -8,6 +8,8 @@ from skimage import io
 from pathlib import Path
 import matplotlib.pyplot as plt
 
+from functions import shift_stack
+
 #%% Inputs --------------------------------------------------------------------
 
 # Parameters
@@ -27,7 +29,7 @@ experiments = [
 
 #%% Function(s) analyse -------------------------------------------------------
 
-def analyse(paths, experiment_out_path):
+def analyse(paths, experiment_out_path, inner_only=True):
     
     global \
         metadata_list, obj_data_list, df
@@ -44,17 +46,64 @@ def analyse(paths, experiment_out_path):
             metadata_list.append(metadata)  
             obj_data_list.append(metadata["obj_data"])  
             
-    # Analyse -----------------------------------------------------------------   
+    # Plot #1 (barplot) -------------------------------------------------------  
+
+    # Initialize
+    binMin, binMax, binSize = 0, 100, 10
+    binRange = np.arange(binMin, binMax + 1, binSize)
+    plt.figure(figsize=(10, 3 * len(paths)))
+
+    for path in paths:
+        
+        # Get time (from name)
+        tIdx = path.stem.find("Time")
+        t = int(path.stem[tIdx + 4])
+        
+        # Extract data
+        ratio = np.stack([data["ratio"] for data in obj_data_list[t]])
+        mtx_dist = np.stack([data["mtx_dist"] for data in obj_data_list[t]])
+        category = np.stack([data["category"] for data in obj_data_list[t]])
+        
+        # Select inner objects
+        valid_idx = category == 0
+        ratio = ratio[valid_idx]
+        mtx_dist = mtx_dist[valid_idx]
+        
+        # Compute avg and std ratios
+        avgRatios, stdRatios, labels = [], [], []
+        for b in range(1, len(binRange)):
+            b0, b1 = binRange[b - 1], binRange[b]
+            tmp = ratio[(mtx_dist >= b0) & (mtx_dist < b1)]
+            avgRatios.append(np.mean(tmp))
+            stdRatios.append(np.std(tmp))
+            labels.append(f"{b0}-{b1}")
+        
+        # plot
+        plt.subplot(len(paths), 1, t + 1)
+        plt.axhline(y=1, color='k', linewidth=1, linestyle='--')
+        plt.bar(labels, avgRatios, width=0.75)
+        plt.errorbar(
+            labels, avgRatios, fmt="o", color="k", 
+            capsize=10, yerr=stdRatios, linewidth=0.5
+            )
+        plt.ylim(0, 1.5)
+        plt.title(path.stem)
+        plt.ylabel("fill ratio")
+        plt.xlabel("distance (pixel)")   
+
+    # Save & show
+    plt.tight_layout(pad=2)
+    plt.savefig(experiment_out_path / (experiment + "_plot.jpg"), format='jpg')
+    plt.show()
             
     # Save --------------------------------------------------------------------
 
     for i, path in enumerate(paths):
-        df_path = experiment_out_path / (path.stem + "_outputs.csv")
+        df_path = experiment_out_path / (path.stem + "_obj_data.csv")
         df = pd.DataFrame(obj_data_list[i])
         df.to_csv(df_path, index=False, float_format='%.3f')
 
     return
-
 
 #%% Execute -------------------------------------------------------------------
 
@@ -62,45 +111,47 @@ outputs = []
 if __name__ == "__main__":
     for experiment in experiments:
         experiment_path = data_path / experiment
-        experiment_out_path = data_path / experiment / "OUT"
+        experiment_out_path = data_path / experiment / "outputs"
         experiment_out_path.mkdir(parents=True, exist_ok=True)
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
         analyse(paths, experiment_out_path)
 
 #%%
    
-nBin = 10
+# Plot #1 (heatmap) -----------------------------------------------------------  
 
-nT = len(obj_data_list)
-plt.figure(figsize=(10, 5 * nT))
+t = 3
 
-for t in range(nT):
+#
+centers = metadata_list[0]["centers"]
+# mtx_mask = metadata_list[0]["mtx_mask"]
+# rod_mask = metadata_list[0]["rod_mask"]
+# mtx_mask = shift_stack(mtx_mask, centers, reverse=True)
+
+ratio = np.stack([data["ratio"] for data in obj_data_list[t]])
+ctrds_z = np.stack([data["ctrd_z"] for data in obj_data_list[t]])
+ctrds_y = np.stack([data["ctrd_y"] for data in obj_data_list[t]])
+ctrds_x = np.stack([data["ctrd_x"] for data in obj_data_list[t]])
+category = np.stack([data["category"] for data in obj_data_list[t]])
+
+y_corr, x_corr = [], []
+for z, y, x in zip(ctrds_z, ctrds_y, ctrds_x):
+    y_corr.append(y + centers[int(z)][0])
+    x_corr.append(x + centers[int(z)][1])
+ctrds_y += np.stack(y_corr) 
+ctrds_x += np.stack(x_corr) 
+
+plt.figure(figsize=(10, 10))
+plt.scatter(ctrds_y, ctrds_x, c=ratio)
     
-    # Extract data
-    ratio = np.stack([data["ratio"] for data in obj_data_list[t]])
-    mtx_dist = np.stack([data["mtx_dist"] for data in obj_data_list[t]])
-    category = np.stack([data["category"] for data in obj_data_list[t]])
-    
-    # Select inner voids
-    valid_idx = category == 0
-    ratio = ratio[valid_idx]
-    mtx_dist = mtx_dist[valid_idx]
-    
-    # Compute avg and std ratios
-    avgRatios, stdRatios, labels = [], [], []
-    maxBin = np.max(mtx_dist)
-    rangeBin = np.linspace(0, maxBin, num=nBin + 1)
-    for b in range(1, nBin + 1):
-        b0, b1 = rangeBin[b - 1], rangeBin[b]
-        tmp = ratio[(mtx_dist >= b0) & (mtx_dist < b1)]
-        avgRatios.append(np.mean(tmp))
-        stdRatios.append(np.std(tmp))
-        labels.append(f"{b0:.2f}-{b1:.2f}")
-        
-        
-    plt.subplot(nT, 1, t + 1)
-    plt.bar(labels, avgRatios, width=0.75)
-    plt.errorbar(labels, avgRatios, fmt="o", yerr=stdRatios)
-    plt.ylim(0, 1.5)
-    
-    # plt.errorbar(labels, avgRatios, yerr=stdRatios, fmt='o', capsize=5, label='Mean with SD')
+# # Select inner objects
+# valid_idx = category == 0
+# ratio = ratio[valid_idx]
+# mtx_dist = mtx_dist[valid_idx]
+
+
+#%%
+
+# import napari
+# viewer = napari.Viewer()
+# viewer.add_image(mtx_mask)

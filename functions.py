@@ -391,8 +391,8 @@ def objects(
             "liquid_area" : liquid_area[i],
             "ratio"       : ratio[i],
             "solidity"    : prop.solidity,
-            "obj_dist"    : obj_dist[i] * obj_df,
-            "mtx_dist"    : mtx_dist[i] * obj_df,
+            "obj_dist"    : obj_dist[i],
+            "mtx_dist"    : mtx_dist[i],
             "category"    : category[i],
             })
         

@@ -26,13 +26,13 @@ experiment = "D1_ICONX_DoS"
 
 # Paths
 experiment_path = data_path / experiment
-experiment_reg_path = data_path / experiment / "REG"
+experiment_reg_path = data_path / experiment / "registered"
 paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
 
 # Open data
-stack_reg_norm = io.imread(experiment_reg_path / (experiment + "_reg_norm.tif"))
-probs_reg = io.imread(experiment_reg_path / (experiment + "_probs_reg.tif"))
-norm_reg = io.imread(experiment_reg_path / (experiment + "_norm_reg.tif"))
+stack_reg_norm = io.imread(experiment_reg_path / (experiment + f"_crop_df{df}_reg_norm.tif"))
+probs_reg = io.imread(experiment_reg_path / (experiment + f"_crop_df{df}_probs_reg.tif"))
+norm_reg = io.imread(experiment_reg_path / (experiment + f"_crop_df{df}_norm_reg.tif"))
 
 # Prepare data
 mask = norm_reg > 0

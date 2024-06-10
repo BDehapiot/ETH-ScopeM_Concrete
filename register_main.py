@@ -26,9 +26,9 @@ df = 4 # downscale factor
 # Paths
 data_path = Path("D:/local_Concrete/data")
 experiments = [
-    # "D1_ICONX_DoS",
+    "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
-    "D12_ICONX_corrosion", 
+    # "D12_ICONX_corrosion", 
     # "H1_ICONX_DoS",
     # "H9_ICONX_DoS",
     ]
@@ -40,7 +40,7 @@ def register(path_ref, path_reg):
     name_ref = path_ref.stem  
     name_reg = path_reg.stem
     experiment_path = path_ref.parent
-    experiment_reg_path = experiment_path / "REG"
+    experiment_reg_path = experiment_path / "registered"
     print(
         f"(register)\n"
         f"ref : {name_ref}\n"
@@ -151,8 +151,16 @@ def register(path_ref, path_reg):
     # Detect false pairs
     coords_ref, coords_reg = [], []
     for pair in pairs:
-        coords_ref.append(obj_data_ref[int(pair[0])]["centroid"])
-        coords_reg.append(obj_data_reg[int(pair[1])]["centroid"])
+        coords_ref.append((
+            obj_data_ref[int(pair[0])]["ctrd_z"],
+            obj_data_ref[int(pair[0])]["ctrd_y"],
+            obj_data_ref[int(pair[0])]["ctrd_x"],
+            ))
+        coords_reg.append((
+            obj_data_reg[int(pair[1])]["ctrd_z"],
+            obj_data_reg[int(pair[1])]["ctrd_y"],
+            obj_data_reg[int(pair[1])]["ctrd_x"],
+            ))
     coords_ref = np.stack(coords_ref)
     coords_reg = np.stack(coords_reg)
     dist_ref = get_distances(coords_ref) 
@@ -300,32 +308,32 @@ def register_postprocess(outputs, crop=False):
 
     # Data
     io.imsave(
-        experiment_reg_path / (experiment_path.name + "_reg.tif"), 
+        experiment_reg_path / (experiment_path.name + f"_crop_df{df}_reg.tif"), 
         stack_reg.astype("uint16"), check_contrast=False, 
         imagej=True, metadata={'axes': 'TZYX'}
         )
     io.imsave(
-        experiment_reg_path / (experiment_path.name + "_reg_norm.tif"), 
+        experiment_reg_path / (experiment_path.name + f"_crop_df{df}_reg_norm.tif"), 
         stack_reg_norm.astype("uint16"), check_contrast=False, 
         imagej=True, metadata={'axes': 'TZYX'}
         )
     io.imsave(
-        experiment_reg_path / (experiment_path.name + "_norm_reg.tif"), 
+        experiment_reg_path / (experiment_path.name + f"_crop_df{df}_norm_reg.tif"), 
         norm_reg.astype("float32"), check_contrast=False, 
         imagej=True, metadata={'axes': 'TZYX'}
         )
     io.imsave(
-        experiment_reg_path / (experiment_path.name + "_probs_reg.tif"), 
+        experiment_reg_path / (experiment_path.name + f"_crop_df{df}_probs_reg.tif"), 
         probs_reg.astype("float32"), check_contrast=False, 
         imagej=True, metadata={'axes': 'TZYX'}
         )
     io.imsave(
-        experiment_reg_path / (experiment_path.name + "_air_mask_reg.tif"), 
+        experiment_reg_path / (experiment_path.name + f"_crop_df{df}_air_mask_reg.tif"), 
         air_mask_reg.astype("uint8"), check_contrast=False, 
         imagej=True, metadata={'axes': 'TZYX'}
         )
     io.imsave(
-        experiment_reg_path / (experiment_path.name + "_liquid_mask_reg.tif"), 
+        experiment_reg_path / (experiment_path.name + f"_crop_df{df}_liquid_mask_reg.tif"), 
         liquid_mask_reg.astype("uint8"), check_contrast=False, 
         imagej=True, metadata={'axes': 'TZYX'}
         )    
@@ -336,7 +344,7 @@ outputs = []
 if __name__ == "__main__":
     for experiment in experiments:
         experiment_path = data_path / experiment
-        experiment_reg_path = data_path / experiment / "REG"
+        experiment_reg_path = data_path / experiment / "registered"
         experiment_reg_path.mkdir(parents=True, exist_ok=True)
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
         test_path = experiment_reg_path / (paths[1].stem + "_transform_matrix.pkl")
