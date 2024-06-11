@@ -29,13 +29,13 @@ experiments = [
 
 #%% Function(s) analyse -------------------------------------------------------
 
-def analyse(paths, experiment_out_path, inner_only=True):
+def analyse(paths, experiment_path):
     
     global \
         metadata_list, obj_data_list, df
     
     # Read --------------------------------------------------------------------
-    
+       
     metadata_list, obj_data_list = [], []
     for path in paths:
 
@@ -46,23 +46,27 @@ def analyse(paths, experiment_out_path, inner_only=True):
             metadata_list.append(metadata)  
             obj_data_list.append(metadata["obj_data"])  
             
+    # Path
+    experiment_reg_path = experiment_path / "registered"
+    experiment_out_path = experiment_path / "outputs"
+            
     # Plot #1 (barplot) -------------------------------------------------------  
 
     # Initialize
-    binMin, binMax, binSize = 0, 100, 10
+    binMin, binMax, binSize = 0, 110, 10
     binRange = np.arange(binMin, binMax + 1, binSize)
     plt.figure(figsize=(10, 3 * len(paths)))
 
-    for path in paths:
+    for i, path in enumerate(paths):
         
         # Get time (from name)
         tIdx = path.stem.find("Time")
         t = int(path.stem[tIdx + 4])
         
         # Extract data
-        ratio = np.stack([data["ratio"] for data in obj_data_list[t]])
-        mtx_dist = np.stack([data["mtx_dist"] for data in obj_data_list[t]])
-        category = np.stack([data["category"] for data in obj_data_list[t]])
+        ratio = np.stack([data["ratio"] for data in obj_data_list[i]])
+        mtx_dist = np.stack([data["mtx_dist"] for data in obj_data_list[i]])
+        category = np.stack([data["category"] for data in obj_data_list[i]])
         
         # Select inner objects
         valid_idx = category == 0
@@ -111,45 +115,64 @@ outputs = []
 if __name__ == "__main__":
     for experiment in experiments:
         experiment_path = data_path / experiment
-        experiment_out_path = data_path / experiment / "outputs"
+        experiment_out_path = experiment_path / "outputs"
         experiment_out_path.mkdir(parents=True, exist_ok=True)
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
-        analyse(paths, experiment_out_path)
+        analyse(paths, experiment_path)
 
 #%%
    
-# Plot #1 (heatmap) -----------------------------------------------------------  
+# # Plot #1 (heatmap) -----------------------------------------------------------  
 
-t = 3
+# i = 7
+# path = paths[i]
+# # for i, path in enumerate(paths):
 
-#
-centers = metadata_list[0]["centers"]
-# mtx_mask = metadata_list[0]["mtx_mask"]
-# rod_mask = metadata_list[0]["rod_mask"]
-# mtx_mask = shift_stack(mtx_mask, centers, reverse=True)
-
-ratio = np.stack([data["ratio"] for data in obj_data_list[t]])
-ctrds_z = np.stack([data["ctrd_z"] for data in obj_data_list[t]])
-ctrds_y = np.stack([data["ctrd_y"] for data in obj_data_list[t]])
-ctrds_x = np.stack([data["ctrd_x"] for data in obj_data_list[t]])
-category = np.stack([data["category"] for data in obj_data_list[t]])
-
-y_corr, x_corr = [], []
-for z, y, x in zip(ctrds_z, ctrds_y, ctrds_x):
-    y_corr.append(y + centers[int(z)][0])
-    x_corr.append(x + centers[int(z)][1])
-ctrds_y += np.stack(y_corr) 
-ctrds_x += np.stack(x_corr) 
-
-plt.figure(figsize=(10, 10))
-plt.scatter(ctrds_y, ctrds_x, c=ratio)
+# # -----------------------------------------------------------------------------
     
+# # Open data
+# experiment_reg_path = experiment_path / "registered"
+# transform_matrix_path = experiment_reg_path / (path.stem + "_transform_matrix.pkl")
+# with open(transform_matrix_path, 'rb') as file:
+#     transform_matrix = pickle.load(file)
+
+# # 
+# centers = metadata_list[0]["centers"]
+# ratio = np.stack([data["ratio"] for data in obj_data_list[i]])
+# category = np.stack([data["category"] for data in obj_data_list[i]])
+# centroids = np.column_stack((
+#     np.stack([data["ctrd_z"] for data in obj_data_list[i]]),
+#     np.stack([data["ctrd_y"] for data in obj_data_list[i]]),
+#     np.stack([data["ctrd_x"] for data in obj_data_list[i]]),
+#     np.ones(ratio.shape[0])
+#     ))
+
+# #
+# centroids_reg = (centroids @ transform_matrix.T)
+# ctrds_z = centroids_reg[:, 0]
+# ctrds_y = centroids_reg[:, 1]
+# ctrds_x = centroids_reg[:, 2]
+
+# #
+# y_corr, x_corr = [], []
+# for z, y, x in zip(ctrds_z, ctrds_y, ctrds_x):
+#     z = int(z)
+#     if z < 0: z = 0
+#     if z > len(centers): z = len(centers)
+#     y_corr.append(y + centers[int(z)][0])
+#     x_corr.append(x + centers[int(z)][1])
+# ctrds_y += np.stack(y_corr) 
+# ctrds_x += np.stack(x_corr) 
+
 # # Select inner objects
 # valid_idx = category == 0
 # ratio = ratio[valid_idx]
-# mtx_dist = mtx_dist[valid_idx]
+# ctrds_y = ctrds_y[valid_idx]
+# ctrds_x = ctrds_x[valid_idx]
 
-
+# plt.figure(figsize=(10, 10))
+# plt.scatter(ctrds_y, ctrds_x, c=ratio)
+    
 #%%
 
 # import napari
