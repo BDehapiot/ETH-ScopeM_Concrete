@@ -16,10 +16,11 @@ df = 4 # downscale factor
 
 # Paths
 data_path = Path("D:/local_Concrete/data")
-experiment = "D1_ICONX_DoS"
+# experiment = "D1_ICONX_DoS"
 # experiment = "D11_ICONX_DoS"
 # experiment = "D12_ICONX_corrosion"
 # experiment = "H1_ICONX_DoS"
+experiment = "H5_ICONX_corrosion"
 # experiment = "H9_ICONX_DoS"
 
 #%% Initialize ----------------------------------------------------------------

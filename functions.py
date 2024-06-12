@@ -269,8 +269,11 @@ def segment(norm, probs, EDM, centers, df):
     peaks, _ = find_peaks(hist, distance=33) # Parameter
     _, _, lws, rws = peak_widths(hist, peaks, rel_height=0.5) # Parameter
     idx = np.argmin(peaks)
-    thresh = rws[idx] + (rws[idx] - peaks[idx])
-    thresh_val = bins[int(thresh) + 1] + y0
+    thresh = rws[idx] + (rws[idx] - peaks[idx])  
+    if int(thresh) + 1 > 100:
+        thresh_val = bins[100] + y0 # debug
+    else:
+        thresh_val = bins[int(thresh) + 1] + y0
     thresh_val *= 1.0 # Parameter (1.0)
     # print(thresh_val)
         

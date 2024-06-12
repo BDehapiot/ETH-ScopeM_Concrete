@@ -19,10 +19,11 @@ df = 4 # downscale factor
 # Paths
 data_path = Path("D:/local_Concrete/data")
 experiments = [
-    "D1_ICONX_DoS",
+    # "D1_ICONX_DoS",
     # "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
     # "H1_ICONX_DoS",
+    "H5_ICONX_corrosion"
     # "H9_ICONX_DoS",
     ]
 
@@ -83,7 +84,7 @@ def analyse(paths, experiment_path):
             labels.append(f"{b0}-{b1}")
         
         # plot
-        plt.subplot(len(paths), 1, t + 1)
+        plt.subplot(len(paths), 1, i + 1)
         plt.axhline(y=1, color='k', linewidth=1, linestyle='--')
         plt.bar(labels, avgRatios, width=0.75)
         plt.errorbar(
