@@ -1,9 +1,8 @@
-## Procedure
-
-### process_main.py
+## Main procedure
+### `process_main.py`
 Main processing tasks executed on original image stacks
 
-- **Downscale** (reduce processing time)  
+1) **Downscale** (reduce processing time)  
 ```bash
 # For downscale factor (df) = 4  
 original stack (z, y, x)  = 1948 x 1788 x 1788 = 13 Gb  
@@ -11,7 +10,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 ```
 #
 
-- **Preprocess**
+2) **Preprocess**
     - center images over Z axis
     - compute median projection (`med_proj`)
     - normalize images (divide by `med_proj` to get `norm`)
@@ -24,7 +23,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 
 #
 
-- **Predict** (U-Net - resnet34)
+3) **Predict** (U-Net - resnet34)
     - manually annotate data (Napari)
     - train semantic segmentation model (~ 25 image pairs)
     - save weights (`model-weights_void.hdf5`)
@@ -34,7 +33,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 
 #
 
-- **Segment**
+4) **Segment**
     - segment voids from `obj_probs`
     - normalize void brightness (custom fitting procedure)
     - determine air and liquid masks (`air_mask`, `liquid_mask`)
@@ -43,38 +42,20 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 
 #
 
-- **Objects**
+5) **Objects**
     - extract `obj_data` (see [outputs](###Outputsfolder) for more info)
 
-#
+## Registration
+### `register_main.py`
 
-### register_main.py
+3D stack Registration from timepoint to timepoint  
 
+<img src="figures/misalignment.png" width="600" alt="misalignment">
 
-## Content
-### Process  
-- **process_main.py** - mask, norm, prediction & obj. data 
-    
-### Register
-- **register_main.py** - spatial registration & histogram matching 
+1) **Match object pairs**
 
-### Display  
-- **display_mask.py** - show air/liquid masks (Napari)
-- **display_probs.py** - show model predictions (Napari)
+2) **Wrap 3D stacks**
 
-### Analyse
-- **analyse_main.py**
-
-### Model:  
-- **model_extract.py** - extract train. images 
-- **model_annotate.py** - annotate train. images (Napari)
-- **model_train.py** - train model
-
-### Others
-- **functions.py** - contains all required functions
-- **environment-gpu.yml** - dependencies with GPU support (NVIDIA GPU required)
-- **environment-nogpu.yml** - dependencies with no GPU support
-- **model-weights_void.h5** - model weights for void segmentation
 
 ## Outputs
 
@@ -103,7 +84,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 
 ### outputs folder
 
-- obj_data.csv  
+`obj_data.csv`  
 ```bash
 - label # obj. identification label (see `labels.tif`)
 - ctrd_z # obj. z position 
@@ -118,7 +99,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 - mtx_dist # distance from external matrix surface
 - category # 0 = inner obj., 1 = surface obj., 2 = rod obj
 ```
-- plot.jpg  
+`plot.jpg`
 
 ## Comments
 - **To fix #1**
