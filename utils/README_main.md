@@ -16,6 +16,7 @@ Main processing tasks executed on original image stacks
 original stack (z, y, x)  = 1948 x 1788 x 1788 = 13 Gb  
 downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 ```
+
 #
 
 2) **Preprocess**
@@ -68,7 +69,7 @@ of translation, rotation, and scaling within the 3D space.
         - distance to outer surface
         - distance to neighbors
         - shape descriptors (area, solidity)
-    - identify valid pairs (minimizing comparison criteria variation)
+    - identify valid pairs (min. difference between comparison criteria)
 
 #
 
