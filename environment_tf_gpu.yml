@@ -17,14 +17,15 @@ dependencies:
   - matplotlib-base
   - pip
   # conda_spec
+  - napari
+  - pyqt
   - spyder
   # conda_tf_gpu
   - cudatoolkit=11.2
   - cudnn=8.1
   - pip:
     # pip_core
-    - bd-tools=0.1.0
-    - napari[all]
+    - bd-tools==0.1.0
     # pip_spec
     # pip_tf_gpu
     - albumentations
