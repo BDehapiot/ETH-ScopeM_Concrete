@@ -2,15 +2,12 @@
 ### `process_main.py`
 Main processing tasks executed on original image stacks
 
-1) **Downscale**
-1) <span style="color:RoyalBlue;">**Downscale**</span> (reduce processing time)  
+1) **Downscale** (reduce processing time)  
 ```bash
 # For downscale factor (df) = 4  
 original stack (z, y, x)  = 1948 x 1788 x 1788 = 13 Gb  
 downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 ```
-
-
 #
 
 2) **Preprocess**
@@ -22,7 +19,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
         `mtx_EDM` - distance from outer surface  
         `rod_EDM` - distance from inner rod
 
-<img src="figures/masks&EDM.png" width="700" alt="masks&EDM">
+<img src="figures/masks&EDM.png" width="600" alt="masks&EDM">
 
 #
 
@@ -32,7 +29,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
     - save weights (`model-weights_void.hdf5`)
     - predict un-seen images (`obj_probs`)
 
-<img src="figures/predict.png" width="450" alt="predict">
+<img src="figures/predict.png" width="400" alt="predict">
 
 #
 
@@ -41,23 +38,35 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
     - normalize void brightness (custom fitting procedure)
     - determine air and liquid masks (`air_mask`, `liquid_mask`)
 
-<img src="figures/segment.png" width="700" alt="segment">
+<img src="figures/segment.png" width="600" alt="segment">
 
 #
 
 5) **Objects**
-    - extract `obj_data` (see [outputs](###Outputsfolder) for more info)
+    - extract `obj_data` (see [outputs folder](###-outputs-folder) for more info)
 
 ## Registration
 ### `register_main.py`
 
-3D stack Registration from timepoint to timepoint  
+Between different timepoints, the image stacks exhibit inconsistencies in terms \
+of translation, rotation, and scaling within the 3D space.
 
-<img src="figures/misalignment.png" width="700" alt="misalignment">
+<img src="figures/misalignment.png" width="600" alt="misalignment">
+
+#
 
 1) **Match object pairs**
+    - compare segmented objects for:
+        - distance to outer surface
+        - distance to neighbors
+        - shape descriptors (area, solidity)
+    - identify valid pairs (minimizing comparison criteria variation)
 
-2) **Wrap 3D stacks**
+#
+
+2) **Register 3D stacks**
+    - compute affine transformation matrix (based on valid pair centroids)
+    - apply transformation and save registered data (see [registered folder](###-registered-folder))
 
 
 ## Outputs
