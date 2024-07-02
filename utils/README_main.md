@@ -1,3 +1,11 @@
+
+## Index
+- [Main procedure](#main-procedure)
+- [Registration](#registration)
+- [Display](#display)
+- [Outputs](#outputs)
+- [Developer Notes](#developer-notes)
+
 ## Main procedure
 ### `process_main.py`
 Main processing tasks executed on original image stacks
@@ -19,7 +27,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
         `mtx_EDM` - distance from outer surface  
         `rod_EDM` - distance from inner rod
 
-<img src="figures/masks&EDM.png" width="600" alt="masks&EDM">
+<img src="figures/masks&EDM.png" width="560" alt="masks&EDM">
 
 #
 
@@ -29,7 +37,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
     - save weights (`model-weights_void.hdf5`)
     - predict un-seen images (`obj_probs`)
 
-<img src="figures/predict.png" width="400" alt="predict">
+<img src="figures/predict.png" width="360" alt="predict">
 
 #
 
@@ -38,12 +46,12 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
     - normalize void brightness (custom fitting procedure)
     - determine air and liquid masks (`air_mask`, `liquid_mask`)
 
-<img src="figures/segment.png" width="600" alt="segment">
+<img src="figures/segment.png" width="560" alt="segment">
 
 #
 
 5) **Objects**
-    - extract `obj_data` (see [outputs folder](###-outputs-folder) for more info)
+    - extract `obj_data` (see [outputs folder](#outputs-folder))
 
 ## Registration
 ### `register_main.py`
@@ -51,7 +59,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 Between different timepoints, the image stacks exhibit inconsistencies in terms \
 of translation, rotation, and scaling within the 3D space.
 
-<img src="figures/misalignment.png" width="600" alt="misalignment">
+<img src="figures/misalignment.png" width="560" alt="misalignment">
 
 #
 
@@ -66,7 +74,14 @@ of translation, rotation, and scaling within the 3D space.
 
 2) **Register 3D stacks**
     - compute affine transformation matrix (based on valid pair centroids)
-    - apply transformation and save registered data (see [registered folder](###-registered-folder))
+    - apply transformation and save registered data (see [registered folder](#registered-folder))
+
+## Display
+### `display_probs.py`
+### `display_mask.py`
+
+Display prediction (`display_probs.py`) and segmentation (`display_mask.py`) \
+results in a customized Napari viewer.
 
 
 ## Outputs
@@ -96,7 +111,7 @@ of translation, rotation, and scaling within the 3D space.
 
 ### outputs folder
 
-`obj_data.csv`  
+1) **`obj_data.csv`**  
 ```bash
 - label # obj. identification label (see `labels.tif`)
 - ctrd_z # obj. z position 
@@ -111,9 +126,9 @@ of translation, rotation, and scaling within the 3D space.
 - mtx_dist # distance from external matrix surface
 - category # 0 = inner obj., 1 = surface obj., 2 = rod obj
 ```
-`plot.jpg`
+2) **`plot.jpg`**
 
-## Comments
+## Developer Notes
 - **To fix #1**
     - expl `D1_ICONX_DOS_reg_norm.tif` z=70 t=3
     - expl `D12_ICONX_Corrosion_reg_norm.tif` z=70 t=3
