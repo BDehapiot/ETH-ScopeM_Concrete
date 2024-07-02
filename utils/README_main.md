@@ -3,39 +3,52 @@
 ### process_main.py
 Main processing tasks executed on original image stacks
 
----
-
-- Downscale data (reduce processing time)  
+- **Downscale** (reduce processing time)  
 ```bash
 # For downscale factor (df) = 4  
 original stack (z, y, x)  = 1948 x 1788 x 1788 = 13 Gb  
 downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 ```
-<img src="figures/downscale.png" width="512" alt="downscale">
+#
 
----
-
-- Extract masks and distance maps 
+- **Preprocess**
     - center images over Z axis
     - compute median projection (`med_proj`)
+    - normalize images (divide by `med_proj` to get `norm`)
     - determine matrix and rod masks (`mtx_mask`, `rod_mask`)
     - compute distance maps  
         `mtx_EDM` - distance from outer surface  
         `rod_EDM` - distance from inner rod
 
-<img src="figures/masks&EDM.png" width="512" alt="downscale">
+<img src="figures/masks&EDM.png" width="600" alt="masks&EDM">
 
-- Normalize images
-    - divide individual image by `med_proj`
+#
 
-- Predictions (U-Net semantic segmentation)
-    - probability images for concrete voids (`obj_probs`)
+- **Predict** (U-Net - resnet34)
+    - manually annotate data (Napari)
+    - train semantic segmentation model (~ 25 image pairs)
+    - save weights (`model-weights_void.hdf5`)
+    - predict un-seen images (`obj_probs`)
 
-- Segmentation
+<img src="figures/predict.png" width="400" alt="predict">
+
+#
+
+- **Segment**
     - segment voids from `obj_probs`
     - normalize void brightness (custom fitting procedure)
-    -  air and liquid
+    - determine air and liquid masks (`air_mask`, `liquid_mask`)
 
+<img src="figures/segment.png" width="600" alt="segment">
+
+#
+
+- **Objects**
+    - extract `obj_data` (see [outputs](###Outputsfolder) for more info)
+
+#
+
+### register_main.py
 
 
 ## Content

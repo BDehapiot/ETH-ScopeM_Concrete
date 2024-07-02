@@ -115,3 +115,32 @@ viewer.window.add_dock_widget(widget, area='right', name="Display")
 viewer.dims.events.point.connect(update_viewer)
 
 napari.run()
+
+#%% temp
+
+experiment = "D11_ICONX_DoS"
+raw_name = f"{experiment}_Time3_crop_df4.tif"
+norm_name = f"{experiment}_Time3_crop_df4_norm.tif"
+probs_name = f"{experiment}_Time3_crop_df4_probs.tif"
+labels_name = f"{experiment}_Time3_crop_df4_labels.tif"
+air_mask_name = f"{experiment}_Time3_crop_df4_air_mask.tif"
+liquid_mask_name = f"{experiment}_Time3_crop_df4_liquid_mask.tif"
+raw = io.imread(data_path / experiment / raw_name)
+norm = io.imread(data_path / experiment / norm_name)
+probs = io.imread(data_path / experiment / probs_name)
+labels = io.imread(data_path / experiment / labels_name)
+air_mask = io.imread(data_path / experiment / air_mask_name)
+liquid_mask = io.imread(data_path / experiment / liquid_mask_name)
+
+viewer = napari.Viewer()
+viewer.add_image(raw, contrast_limits=(2500, 65535), opacity=0.4, gamma=0.6, visible=True)
+viewer.add_image(probs, blending="additive", rendering="attenuated_mip", attenuation=1, opacity=0.5, visible=False)
+viewer.add_labels(labels, visible=False)
+viewer.add_image(air_mask, blending="additive", rendering="attenuated_mip", attenuation=1, colormap="bop orange", opacity=0.75, visible=True)
+viewer.add_image(liquid_mask, blending="additive", rendering="attenuated_mip", attenuation=1, colormap="bop blue", opacity=0.75, visible=False)
+
+viewer.dims.ndisplay = 3
+viewer.camera.perspective = 1
+viewer.camera.angles = (0, 0, 270)
+viewer.camera.zoom = 1.2
+
