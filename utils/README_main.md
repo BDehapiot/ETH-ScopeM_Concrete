@@ -28,7 +28,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
         `mtx_EDM` - distance from outer surface  
         `rod_EDM` - distance from inner rod
 
-<img src="figures/masks&EDM.png" width="560" alt="masks&EDM">
+<img src='figures/masks&EDM.png' width="560" alt="masks&EDM">
 
 #
 
@@ -38,7 +38,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
     - save weights (`model-weights_void.hdf5`)
     - predict un-seen images (`obj_probs`)
 
-<img src="figures/predict.png" width="360" alt="predict">
+<img src='figures/predict.png' width="360" alt="predict">
 
 #
 
@@ -47,7 +47,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
     - normalize void brightness (custom fitting procedure)
     - determine air and liquid masks (`air_mask`, `liquid_mask`)
 
-<img src="figures/segment.png" width="560" alt="segment">
+<img src='figures/segment.png' width="560" alt="segment">
 
 #
 
@@ -60,7 +60,7 @@ downscaled stack (z, y, x)  = 487 x 447 x 447 = 186 Mb
 Between different timepoints, the image stacks exhibit inconsistencies in terms \
 of translation, rotation, and scaling within the 3D space.
 
-<img src="figures/misalignment.png" width="560" alt="misalignment">
+<img src='figures/misalignment.png' width="560" alt="misalignment">
 
 #
 

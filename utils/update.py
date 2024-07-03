@@ -61,19 +61,23 @@ def update_install(path):
     install = install.replace("{{ env_name }}", env_name)
     return install
 
+def update_main(path):
+    with open(path, "r") as file:
+        main = file.read()
+    main = main.replace("img src='", "img src='utils/")
+    return main
+
 def update_template(path):
     with open(path, "r") as file:
         template = file.read()
-    with open(utils_path / "README_main.md") as file:
-        main = file.read()
     template = template.replace("{{ python_version }}", python_version)
     template = template.replace("{{ author }}", author)
     template = template.replace("{{ created }}", created)
     template = template.replace("{{ license }}", license)
     template = template.replace("{{ repo_name }}", repo_name)
     template = template.replace("{{ description }}", description)
-    template = template.replace("{{ install }}", install) 
-    template = template.replace("{{ main }}", main) 
+    template = template.replace("{{ install }}", install)
+    template = template.replace("{{ main }}", main)
     if env_type == "tensorflow":
         template = template.replace("{{ tf_version }}", tf_version)
         template = template.replace("{{ cuda_version }}", cuda_version)
@@ -112,11 +116,13 @@ for path in list(root_path.glob("*readme*")):
 # Update files
 if env_type == "base":
     environment = update_environment(utils_path / "environment.yml")
+    main = update_main(utils_path / "README_main.md")
     install = update_install(utils_path / "README_install.md")
     template = update_template(utils_path / "README_template.md")
 elif env_type == "tensorflow":
     environment_tf_gpu = update_environment(utils_path / "environment_tf_gpu.yml")
     environment_tf_nogpu = update_environment(utils_path / "environment_tf_nogpu.yml")
+    main = update_main(utils_path / "README_main.md")
     install = update_install(utils_path / "README_install_tf.md")
     template = update_template(utils_path / "README_template_tf.md")
 
@@ -130,4 +136,4 @@ elif env_type == "tensorflow":
     with open(Path(root_path / "environment_tf_nogpu.yml"), "w") as file:
         file.write(environment_tf_nogpu)
 with open(Path(root_path / "README.md"), "w") as file:
-    file.write(template) 
+    file.write(template)
