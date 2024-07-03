@@ -71,6 +71,8 @@ def update_template(path):
     
     with open(path, "r") as file:
         template = file.read()
+    with open(utils_path / "README_comments.md", "r") as file:
+        comments = file.read()
     template = template.replace("{{ python_version }}", python_version)
     template = template.replace("{{ author }}", author)
     template = template.replace("{{ created }}", created)
@@ -79,6 +81,7 @@ def update_template(path):
     template = template.replace("{{ description }}", description)
     template = template.replace("{{ install }}", install)
     template = template.replace("{{ main }}", main)
+    template = template.replace("{{ comments }}", comments)
     if env_type == "tensorflow":
         template = template.replace("{{ tf_version }}", tf_version)
         template = template.replace("{{ cuda_version }}", cuda_version)

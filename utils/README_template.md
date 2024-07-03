@@ -12,4 +12,4 @@
 
 {{ main }}
 
-## Developer notes
+{{ comments }}

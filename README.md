@@ -11,13 +11,11 @@ Concrete rebar CT scan analysis tool
 
 ## Index
 - [Installation](#installation)
-- [Index](#index)
 - [Main procedure](#main-procedure)
 - [Registration](#registration)
 - [Display](#display)
 - [Outputs](#outputs)
-- [Developer Notes](#developer-notes)
-- [Developer notes](#developer-notes)
+- [Comments](#comments)
 
 ## Installation
 
@@ -88,14 +86,6 @@ Your prompt should now start with `(concrete)` instead of `(base)`
 
 </details>  
 
-
-
-## Index
-- [Main procedure](#main-procedure)
-- [Registration](#registration)
-- [Display](#display)
-- [Outputs](#outputs)
-- [Developer Notes](#developer-notes)
 
 ## Main procedure
 ### `process_main.py`
@@ -220,9 +210,7 @@ results in a customized Napari viewer.
 ```
 2) **`plot.jpg`**
 
-## Developer Notes
-- **To fix #1**
+## Comments
+- **To fix**
     - expl `D1_ICONX_DOS_reg_norm.tif` z=70 t=3
     - expl `D12_ICONX_Corrosion_reg_norm.tif` z=70 t=3
-
-## Developer notes

@@ -1,11 +1,3 @@
-
-## Index
-- [Main procedure](#main-procedure)
-- [Registration](#registration)
-- [Display](#display)
-- [Outputs](#outputs)
-- [Developer Notes](#developer-notes)
-
 ## Main procedure
 ### `process_main.py`
 Main processing tasks executed on original image stacks
@@ -128,8 +120,3 @@ results in a customized Napari viewer.
 - category # 0 = inner obj., 1 = surface obj., 2 = rod obj
 ```
 2) **`plot.jpg`**
-
-## Developer Notes
-- **To fix #1**
-    - expl `D1_ICONX_DOS_reg_norm.tif` z=70 t=3
-    - expl `D12_ICONX_Corrosion_reg_norm.tif` z=70 t=3
