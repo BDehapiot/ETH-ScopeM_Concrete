@@ -7,7 +7,18 @@
 ![License Badge](https://img.shields.io/badge/Licence-GNU%20General%20Public%20License%20v3.0-blue?labelColor=rgb(50%2C60%2C65)&color=rgb(149%2C157%2C165))    
 
 # ETH-ScopeM_Concrete  
-Concrete rebar CT scan analysis tool  
+Concrete rebar CT scan analysis tool
+
+## Index
+- [Installation](#installation)
+- [Index](#index)
+- [Main procedure](#main-procedure)
+- [Registration](#registration)
+- [Display](#display)
+- [Outputs](#outputs)
+- [Developer Notes](#developer-notes)
+- [Developer notes](#developer-notes)
+
 ## Installation
 
 Pease select your operating system
@@ -76,7 +87,8 @@ conda activate concrete
 Your prompt should now start with `(concrete)` instead of `(base)`
 
 </details>  
-  
+
+
 
 ## Index
 - [Main procedure](#main-procedure)
@@ -211,4 +223,6 @@ results in a customized Napari viewer.
 ## Developer Notes
 - **To fix #1**
     - expl `D1_ICONX_DOS_reg_norm.tif` z=70 t=3
-    - expl `D12_ICONX_Corrosion_reg_norm.tif` z=70 t=3  
+    - expl `D12_ICONX_Corrosion_reg_norm.tif` z=70 t=3
+
+## Developer notes

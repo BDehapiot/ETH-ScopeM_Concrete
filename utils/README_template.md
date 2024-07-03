@@ -4,6 +4,12 @@
 ![License Badge](https://img.shields.io/badge/Licence-{{ license }}-blue?labelColor=rgb(50%2C60%2C65)&color=rgb(149%2C157%2C165))     
 
 # {{ repo_name }}  
-{{ description }}  
-{{ install }}  
-{{ main }}  
+{{ description }}
+
+{{ index }}
+
+{{ install }}
+
+{{ main }}
+
+## Developer notes

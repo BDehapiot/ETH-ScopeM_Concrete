@@ -68,6 +68,7 @@ def update_main(path):
     return main
 
 def update_template(path):
+    
     with open(path, "r") as file:
         template = file.read()
     template = template.replace("{{ python_version }}", python_version)
@@ -82,6 +83,19 @@ def update_template(path):
         template = template.replace("{{ tf_version }}", tf_version)
         template = template.replace("{{ cuda_version }}", cuda_version)
         template = template.replace("{{ cudnn_version }}", cudnn_version)
+        
+    # Index
+    sections = []
+    for line in template.split("\n"):
+        if line.startswith("## "):
+            title = line.replace("## ", "").rstrip()
+            link = "#" + title.replace(" ", "-").lower()
+            sections.append(f"- [{title}]({link})")
+    index = "## Index"
+    for section in sections:
+        index = index + f"\n{section}"
+    template = template.replace("{{ index }}", index)   
+    
     return template
 
 #%% Initialize ----------------------------------------------------------------
@@ -137,3 +151,4 @@ elif env_type == "tensorflow":
         file.write(environment_tf_nogpu)
 with open(Path(root_path / "README.md"), "w") as file:
     file.write(template)
+     
