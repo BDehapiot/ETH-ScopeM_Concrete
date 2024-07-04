@@ -38,9 +38,9 @@ Pease select your operating system
 - Run one of the following command:  
 ```bash
 # TensorFlow with GPU support
-mamba env create -f environment-tf-gpu.yml
+mamba env create -f environment_tf_gpu.yml
 # TensorFlow with no GPU support 
-mamba env create -f environment-tf-nogpu.yml
+mamba env create -f environment_tf_nogpu.yml
 ```  
 - Activate Conda environment:
 ```bash
@@ -74,9 +74,9 @@ bash Miniforge3-MacOSX-arm64.sh
 - Run one of the following command: 
 ```bash
 # TensorFlow with GPU support
-mamba env create -f environment-tf-gpu.yml
+mamba env create -f environment_tf_gpu.yml
 # TensorFlow with no GPU support 
-mamba env create -f environment-tf-nogpu.yml
+mamba env create -f environment_tf_nogpu.yml
 ```  
 - Activate Conda environment:  
 ```bash
