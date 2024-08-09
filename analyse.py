@@ -20,13 +20,12 @@ df = 4 # downscale factor
 data_path = Path("D:/local_Concrete/data")
 experiments = [
     # "D1_ICONX_DoS",
-    # "D11_ICONX_DoS",
+    "D11_ICONX_DoS",
     # "D12_ICONX_corrosion", 
     # "H1_ICONX_DoS",
-    "H5_ICONX_corrosion"
+    # "H5_ICONX_corrosion"
     # "H9_ICONX_DoS",
     ]
-
 
 #%% Function(s) analyse -------------------------------------------------------
 
@@ -53,8 +52,11 @@ def analyse(paths, experiment_path):
             
     # Plot #1 (barplot) -------------------------------------------------------  
 
-    # Initialize
+    # Parameters
     binMin, binMax, binSize = 0, 110, 10
+    valMin = 3
+
+    # Initialize
     binRange = np.arange(binMin, binMax + 1, binSize)
     plt.figure(figsize=(10, 3 * len(paths)))
 
@@ -75,18 +77,33 @@ def analyse(paths, experiment_path):
         mtx_dist = mtx_dist[valid_idx]
         
         # Compute avg and std ratios
-        avgRatios, stdRatios, labels = [], [], []
+        nRatios, avgRatios, stdRatios, labels = [], [], [], []
         for b in range(1, len(binRange)):
             b0, b1 = binRange[b - 1], binRange[b]
-            tmp = ratio[(mtx_dist >= b0) & (mtx_dist < b1)]
-            avgRatios.append(np.mean(tmp))
-            stdRatios.append(np.std(tmp))
-            labels.append(f"{b0}-{b1}")
+            ratios = ratio[(mtx_dist >= b0) & (mtx_dist < b1)]
+            nRatios.append(len(ratios)) 
+            if len(ratios) < valMin:
+                avgRatio = 0
+                stdRatio = 0
+            else:
+                avgRatio = np.nanmean(ratios)
+                stdRatio = np.nanstd(ratios)
+            avgRatios.append(avgRatio)
+            stdRatios.append(stdRatio)
+            labels.append(f"{b0}-{b1}\n n={len(ratios)}")
+            
+            # if b == 1:
+            #     print(f"{path.stem}")
+            # print(
+            #     f"{b0:03d}-{b1:03d} "
+            #     f"/ {avgRatio:.3f}-{stdRatio:.3f} "
+            #     f"/ {len(ratios)}"
+            #     )
         
         # plot
         plt.subplot(len(paths), 1, i + 1)
         plt.axhline(y=1, color='k', linewidth=1, linestyle='--')
-        plt.bar(labels, avgRatios, width=0.75)
+        bars = plt.bar(labels, avgRatios, width=0.75)
         plt.errorbar(
             labels, avgRatios, fmt="o", color="k", 
             capsize=10, yerr=stdRatios, linewidth=0.5
@@ -95,6 +112,15 @@ def analyse(paths, experiment_path):
         plt.title(path.stem)
         plt.ylabel("fill ratio")
         plt.xlabel("distance (pixel)")   
+        
+        # annotate
+        for bar, n, avg in zip(bars, nRatios, avgRatios):
+            if n < valMin:
+                plt.text(
+                    bar.get_x() + bar.get_width() / 2, 0.05,
+                    'NaN', ha='center', va='bottom', color='black', 
+                    fontsize=12, rotation=0,
+                    )
 
     # Save & show
     plt.tight_layout(pad=2)
@@ -120,6 +146,10 @@ if __name__ == "__main__":
         experiment_out_path.mkdir(parents=True, exist_ok=True)
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
         analyse(paths, experiment_path)
+
+#%%
+
+
 
 #%%
    

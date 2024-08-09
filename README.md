@@ -211,10 +211,9 @@ results in a customized Napari viewer.
 2) **`plot.jpg`**
 
 ## Comments
-- Fading images in reg_stack (Solved)
-    - expl `D1_ICONX_DOS_reg_norm.tif` z=70 t=3
-    - expl `D12_ICONX_Corrosion_reg_norm.tif` z=70 t=3
-- Bin fluctuation from timepoint to timepoint
-    - Maybe analyse only the fully overlaping region of reg_stack
-    - Maybe exclude bins with not enough data-points (implemented)
-- Consistent bin range (avoid disapiring bin range (e.g 0-10)) (implemented)
+- Fading images in `reg_hmatch.tif`  
+    - solved
+- Bin fluctuation from timepoint to timepoint  
+    - partially solved by excluding bins with not enough data-points
+- Consistent bin range (avoid disapiring bin range (e.g 0-10))  
+    - solved by showing excluding bins NaN text in plot

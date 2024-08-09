@@ -9,18 +9,17 @@ import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 
 # Skimage
-from skimage.filters import gaussian
 from skimage.exposure import match_histograms
 from skimage.morphology import remove_small_objects
 
 # Scipy
 from scipy.linalg import lstsq
-from scipy.ndimage import affine_transform, binary_fill_holes
+from scipy.ndimage import affine_transform
 
 #%% Inputs --------------------------------------------------------------------
 
 # Parameters
-overwrite = True
+overwrite = False
 df = 4 # downscale factor
 
 # Paths
@@ -286,26 +285,17 @@ def register_postprocess(outputs, crop=False):
     air_mask_reg = np.stack([data[3][valid_idx, ...] for data in outputs])
     liquid_mask_reg = np.stack([data[4][valid_idx, ...] for data in outputs])
     
-    # Normalize data
-    mask = norm_reg[0, ...] > 0
-    for t in range(mask.shape[0]):
-        mask[t, ...] = binary_fill_holes(mask[t, ...])
-
-    stack_reg_norm = stack_reg.copy()
-    for t in range(1, stack_reg_norm.shape[0]):
-        stack0 = stack_reg_norm[t - 1, ...]
-        stack0[mask == 0] = 0
-        stack1 = stack_reg_norm[t, ...]
-        stack1[mask == 0] = 0
-        for z in range(stack_reg_norm.shape[1]):
+    # Match data   
+    stack_reg_hmatch = stack_reg.copy()
+    for t in range(1, stack_reg_hmatch.shape[0]):
+        stack0 = stack_reg_hmatch[0, ...]
+        stack1 = stack_reg_hmatch[t, ...]
+        for z in range(stack_reg_hmatch.shape[1]):
             img0 = stack0[z, ...].copy()
             img1 = stack1[z, ...].copy()
-            img0[img1 == 0] = 0
-            stack_reg_norm[t, z, ...] = match_histograms(img1, img0)
-    stack_reg_norm = stack_reg_norm.astype("float32")
-    mask = gaussian(mask, sigma=2)
-    stack_reg_norm *= mask
-    stack_reg_norm = stack_reg_norm.astype("uint16")
+            img0[img1 < 0.5] = 0
+            img1[img0 < 0.5] = 0
+            stack_reg_hmatch[t, z, ...] = match_histograms(img1, img0)
 
     # Data
     io.imsave(
@@ -314,8 +304,8 @@ def register_postprocess(outputs, crop=False):
         imagej=True, metadata={'axes': 'TZYX'}
         )
     io.imsave(
-        experiment_reg_path / (experiment_path.name + f"_crop_df{df}_reg_norm.tif"), 
-        stack_reg_norm.astype("uint16"), check_contrast=False, 
+        experiment_reg_path / (experiment_path.name + f"_crop_df{df}_reg_hmatch.tif"), 
+        stack_reg_hmatch.astype("uint16"), check_contrast=False, 
         imagej=True, metadata={'axes': 'TZYX'}
         )
     io.imsave(
