@@ -1,14 +1,10 @@
 #%% Imports -------------------------------------------------------------------
 
-import time
 import pickle
 import numpy as np
 import pandas as pd
-from skimage import io
 from pathlib import Path
 import matplotlib.pyplot as plt
-
-from functions import shift_stack
 
 #%% Inputs --------------------------------------------------------------------
 
@@ -19,20 +15,17 @@ df = 4 # downscale factor
 # Paths
 data_path = Path("D:/local_Concrete/data")
 experiments = [
-    # "D1_ICONX_DoS",
+    "D1_ICONX_DoS",
     "D11_ICONX_DoS",
-    # "D12_ICONX_corrosion", 
-    # "H1_ICONX_DoS",
-    # "H5_ICONX_corrosion"
-    # "H9_ICONX_DoS",
+    "D12_ICONX_corrosion", 
+    "H1_ICONX_DoS",
+    "H5_ICONX_corrosion",
+    "H9_ICONX_DoS",
     ]
 
 #%% Function(s) analyse -------------------------------------------------------
 
 def analyse(paths, experiment_path):
-    
-    global \
-        metadata_list, obj_data_list, df
     
     # Read --------------------------------------------------------------------
        
@@ -47,7 +40,6 @@ def analyse(paths, experiment_path):
             obj_data_list.append(metadata["obj_data"])  
             
     # Path
-    experiment_reg_path = experiment_path / "registered"
     experiment_out_path = experiment_path / "outputs"
             
     # Plot #1 (barplot) -------------------------------------------------------  
@@ -55,7 +47,7 @@ def analyse(paths, experiment_path):
     # Parameters
     binMin, binMax, binSize = 0, 110, 10
     valMin = 3
-
+    
     # Initialize
     binRange = np.arange(binMin, binMax + 1, binSize)
     plt.figure(figsize=(10, 3 * len(paths)))
@@ -113,19 +105,19 @@ def analyse(paths, experiment_path):
         plt.ylabel("fill ratio")
         plt.xlabel("distance (pixel)")   
         
-        # annotate
+        # Annotate discarded bins 
         for bar, n, avg in zip(bars, nRatios, avgRatios):
             if n < valMin:
                 plt.text(
                     bar.get_x() + bar.get_width() / 2, 0.05,
-                    'NaN', ha='center', va='bottom', color='black', 
+                    'NaN', ha='center', va='bottom', color='red', 
                     fontsize=12, rotation=0,
                     )
 
     # Save & show
     plt.tight_layout(pad=2)
     plt.savefig(experiment_out_path / (experiment + "_plot.jpg"), format='jpg')
-    plt.show()
+    plt.close()
             
     # Save --------------------------------------------------------------------
 
@@ -133,8 +125,6 @@ def analyse(paths, experiment_path):
         df_path = experiment_out_path / (path.stem + "_obj_data.csv")
         df = pd.DataFrame(obj_data_list[i])
         df.to_csv(df_path, index=False, float_format='%.3f')
-
-    return
 
 #%% Execute -------------------------------------------------------------------
 
@@ -146,11 +136,7 @@ if __name__ == "__main__":
         experiment_out_path.mkdir(parents=True, exist_ok=True)
         paths = list(experiment_path.glob(f"*_crop_df{df}.tif*"))
         analyse(paths, experiment_path)
-
-#%%
-
-
-
+        
 #%%
    
 # # Plot #1 (heatmap) -----------------------------------------------------------  
